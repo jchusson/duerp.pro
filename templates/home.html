@@ -96,13 +96,13 @@
   <form class="filterbar" method="get" id="filterForm">
     <input type="text" name="q" value="{{ request.args.get('q','') }}"
            placeholder="Rechercher une unité de travail ou situation dangereuse..." id="searchInput">
-    <select name="crit" id="critFilter" onchange="this.form.submit()">
+    <select name="crit" onchange="this.form.submit()">
       <option value="">Niveau FxGxM : tous</option>
       <option value="low" {{ 'selected' if request.args.get('crit')=='low' }}>≤ 3 (vert)</option>
       <option value="mid" {{ 'selected' if request.args.get('crit')=='mid' }}>4 à 15 (orange)</option>
       <option value="high" {{ 'selected' if request.args.get('crit')=='high' }}>≥ 16 (rouge)</option>
     </select>
-    <select name="unit" id="unitFilter" onchange="this.form.submit()">
+    <select name="unit" onchange="this.form.submit()">
       <option value="">Unité de travail : toutes</option>
       {% for u in units %}
       <option value="{{ u.id }}" {{ 'selected' if request.args.get('unit')|string == u.id|string }}>{{ u.name }}</option>
@@ -121,7 +121,7 @@
       </label>
       <button class="btn secondary" type="submit">Créer une UT</button>
     </form>
-    <form class="inline" method="post" action="{{ url_for('duplicate_work_unit_selected') }}" id="dupForm" style="margin-top:10px">
+    <form class="inline" method="post" action="{{ url_for('duplicate_work_unit_selected') }}" style="margin-top:10px">
       <label>Dupliquer une unité de travail existante
         <select name="src">
           <option value="">— choisir une UT —</option>
@@ -135,55 +135,51 @@
   {% for u in units_shown %}
   <div class="unit-card">
     <div class="unit-title">
-      <h3>{{ u.name }}</h3>
+      <h3>{{ u.name }} <span class="risk-count">{{ u.risks|length }} situation(s)</span></h3>
       <div class="actions-bar">
-        <form class="inline" method="post" action="{{ url_for('rename_work_unit', uid=u.id) }}">
-          <input name="name" value="{{ u.name }}" style="max-width:280px">
-          <button class="btn small secondary" type="submit">Renommer</button>
+        <form method="post" action="{{ url_for('rename_work_unit', uid=u.id) }}" class="inline" style="gap:4px">
+          <input name="name" value="{{ u.name }}" style="max-width:240px">
+          <button class="icon-btn" type="submit" title="Renommer cette unité de travail">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          </button>
         </form>
         <form method="post" action="{{ url_for('duplicate_work_unit', uid=u.id) }}">
           <button class="btn small secondary" type="submit">Dupliquer</button>
         </form>
         <form method="post" action="{{ url_for('delete_work_unit', uid=u.id) }}" onsubmit="return confirm('Supprimer cette unité de travail et toutes ses situations dangereuses ?')">
-          <button class="linklike" type="submit">Supprimer</button>
+          <button class="icon-btn del" type="submit" title="Supprimer cette unité de travail">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>
         </form>
       </div>
     </div>
     <div class="unit-body">
-      <table class="risks">
+      <table class="risks compact">
         <tr>
-          <th style="width:13%">Risque</th><th style="width:19%">Situation dangereuse</th>
-          <th>F</th><th>G</th><th style="width:20%">Mesures de prévention</th>
-          <th>M</th><th>FxGxM</th><th style="width:20%">Actions de prévention</th><th style="width:60px">Actions</th>
+          <th style="width:18%">Risque</th><th style="width:30%">Situation dangereuse</th>
+          <th style="width:4%">F</th><th style="width:4%">G</th><th style="width:5%">M</th>
+          <th style="width:7%">FxGxM</th><th style="width:120px">Actions</th>
         </tr>
         {% for r in u.risks %}
         <tr>
-          <form method="post" action="{{ url_for('update_risk', rid=r.id) }}">
-          <td><input name="hazard" value="{{ r.hazard }}" class="hazard-input" style="width:100%" autocomplete="off" placeholder="Choisir un risque"></td>
-          <td><input name="situation" value="{{ r.situation }}" style="width:100%"></td>
-          <td class="num">
-            <select name="frequency">{% for v in [1,2,3,4] %}<option {{ 'selected' if v==r.frequency }}>{{ v }}</option>{% endfor %}</select>
-          </td>
-          <td class="num">
-            <select name="severity">{% for v in [1,2,4,8] %}<option {{ 'selected' if v==r.severity }}>{{ v }}</option>{% endfor %}</select>
-          </td>
-          <td>
-            {% for m in r.measures %}<div>&#8226; {{ m.text }}</div>{% endfor %}
-            {% if not r.measures %}<em style="color:#9ca3af">aucune</em>{% endif %}
-          </td>
-          <td class="num">
-            <select name="mastery">{% for v in [0.5,1,2] %}<option value="{{ v }}" {{ 'selected' if v==r.mastery }}>{{ '%g'|format(v)|replace('.', ',') }}</option>{% endfor %}</select>
-          </td>
+          <td>{{ r.hazard }}</td>
+          <td>{{ r.situation }}</td>
+          <td class="num">{{ r.frequency }}</td>
+          <td class="num">{{ r.severity }}</td>
+          <td class="num">{{ '%g'|format(r.mastery)|replace('.', ',') }}</td>
           <td class="crit">{{ crit(r.frequency, r.severity, r.mastery) }}</td>
-          <td>
-            {% for a in r.actions %}<div>&#8226; {{ a.text }}{% if a.actor or a.due_date %} <em style="color:#9ca3af">({{ a.actor }}{{ ' — ' if a.actor and a.due_date }}{{ a.due_date }})</em>{% endif %}</div>{% endfor %}
-            {% if not r.actions %}<em style="color:#9ca3af">aucune</em>{% endif %}
-          </td>
           <td class="actions-bar" style="white-space:nowrap">
-            <button class="icon-btn" type="submit" title="Enregistrer les modifications">
+            <button class="icon-btn" type="button" title="Modifier cette situation dangereuse" onclick="openEditRisk({{ r.id }})">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
             </button>
-          </form>
+            <button class="icon-btn" type="button" title="Mesures de prévention" onclick="openMeasures({{ r.id }})">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>
+              <span class="badge">{{ r.measures|length }}</span>
+            </button>
+            <button class="icon-btn" type="button" title="Actions de prévention" onclick="openActions({{ r.id }})">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+              <span class="badge">{{ r.actions|length }}</span>
+            </button>
             <button class="icon-btn dup" type="button" title="Dupliquer vers d'autres unités de travail" onclick="openDupModal({{ r.id }}, {{ u.id }})">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             </button>
@@ -194,54 +190,6 @@
             </form>
           </td>
         </tr>
-        <tr class="subrow">
-          <td colspan="9">
-            <div class="line-tools">
-              <span class="line-label">Mesures de prévention :</span>
-              {% for m in r.measures %}
-              <form class="inline" method="post" action="{{ url_for('update_measure', mid=m.id) }}" style="gap:4px">
-                <input name="text" value="{{ m.text }}" style="min-width:180px">
-                <button class="icon-btn" type="submit" title="Modifier cette mesure">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-                </button>
-              </form>
-              <form method="post" action="{{ url_for('delete_measure', mid=m.id) }}" style="display:inline">
-                <button class="icon-btn del" type="submit" title="Supprimer cette mesure">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
-                </button>
-              </form>
-              {% endfor %}
-              <form class="inline" method="post" action="{{ url_for('add_measure', rid=r.id) }}" style="gap:4px">
-                <input name="text" placeholder="Nouvelle mesure..." style="min-width:150px">
-                <button class="btn small" type="submit" title="Ajouter une mesure de prévention">+</button>
-              </form>
-            </div>
-            <div class="line-tools" style="margin-top:4px">
-              <span class="line-label">Actions de prévention :</span>
-              {% for a in r.actions %}
-              <form class="inline" method="post" action="{{ url_for('update_action_line', aid=a.id) }}" style="gap:4px">
-                <input name="text" value="{{ a.text }}" style="min-width:130px">
-                <input name="actor" value="{{ a.actor }}" placeholder="Acteur" style="width:90px" title="Acteur qui réalisera l'action">
-                <input name="due_date" type="date" value="{{ a.due_date }}" style="width:130px" title="Date envisagée de réalisation">
-                <button class="icon-btn" type="submit" title="Modifier cette action">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-                </button>
-              </form>
-              <form method="post" action="{{ url_for('delete_action_line', aid=a.id) }}" style="display:inline">
-                <button class="icon-btn del" type="submit" title="Supprimer cette action">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
-                </button>
-              </form>
-              {% endfor %}
-              <form class="inline" method="post" action="{{ url_for('add_action_line', rid=r.id) }}" style="gap:4px">
-                <input name="text" placeholder="Nouvelle action..." style="min-width:120px">
-                <input name="actor" placeholder="Acteur" style="width:90px" title="Acteur qui réalisera l'action">
-                <input name="due_date" type="date" style="width:130px" title="Date envisagée de réalisation">
-                <button class="btn small" type="submit" title="Ajouter une action de prévention">+</button>
-              </form>
-            </div>
-          </td>
-        </tr>
         {% endfor %}
         <tr>
           <form method="post" action="{{ url_for('add_risk') }}">
@@ -250,10 +198,8 @@
             <td><input name="situation" placeholder="Situation dangereuse" style="width:100%"></td>
             <td class="num"><select name="frequency">{% for v in [1,2,3,4] %}<option>{{ v }}</option>{% endfor %}</select></td>
             <td class="num"><select name="severity">{% for v in [1,2,4,8] %}<option>{{ v }}</option>{% endfor %}</select></td>
-            <td><input name="measures[]" placeholder="Mesures de prévention" style="width:100%"></td>
             <td class="num"><select name="mastery">{% for v in [0.5,1,2] %}<option value="{{ v }}">{{ '%g'|format(v)|replace('.', ',') }}</option>{% endfor %}</select></td>
             <td></td>
-            <td><input name="actions[]" placeholder="Actions de prévention" style="width:100%"></td>
             <td><button class="btn small" type="submit">Ajouter</button></td>
           </form>
         </tr>
@@ -310,80 +256,148 @@
   </div>
 </div>
 
-<!-- Modale de duplication d'une situation dangereuse -->
-<div class="modal-backdrop" id="dupModal">
+<!-- Modale générique -->
+<div class="modal-backdrop" id="appModal">
   <div class="modal">
-    <h3>Dupliquer la situation dangereuse</h3>
-    <p class="hint">Cochez les unités de travail du client vers lesquelles copier cette situation dangereuse (avec ses mesures et actions de prévention).</p>
-    <form method="post" id="dupRiskForm">
-      <div class="ut-list">
-        {% for u2 in units %}
-        <label><input type="checkbox" name="targets[]" value="{{ u2.id }}" form="dupRiskForm"> {{ u2.name }}</label>
-        {% endfor %}
-      </div>
-      <div class="actions-row">
-        <button type="button" class="btn ghost" onclick="closeDupModal()">Annuler</button>
-        <button type="submit" class="btn">Dupliquer</button>
-      </div>
-    </form>
+    <h3 id="modalTitle"></h3>
+    <p class="hint" id="modalHint"></p>
+    <div id="modalBody"></div>
   </div>
 </div>
 
 <script>
 const CATALOG = {{ catalog | tojson }};
-const dupForm = document.getElementById('dupRiskForm');
-const dupModal = document.getElementById('dupModal');
+const RISKS = {};
+{% for u in units %}{% for r in u.risks %}
+RISKS[{{ r.id }}] = {
+  hazard: {{ r.hazard | tojson }},
+  situation: {{ r.situation | tojson }},
+  frequency: {{ r.frequency }}, severity: {{ r.severity }}, mastery: {{ r.mastery }},
+  measures: [{% for m in r.measures %}{id:{{ m.id }}, text:{{ m.text | tojson }}}, {% endfor %}],
+  actions: [{% for a in r.actions %}{id:{{ a.id }}, text:{{ a.text | tojson }}, actor:{{ a.actor | tojson }}, due_date:{{ a.due_date | tojson }}}, {% endfor %}]
+};
+{% endfor %}{% endfor %}
 
-function openDupModal(rid, currentUid) {
-  dupForm.action = '/risks/' + rid + '/duplicate';
-  dupForm.querySelectorAll('input[name="targets[]"]').forEach(function(cb) {
-    cb.checked = false;
-    cb.disabled = (parseInt(cb.value) === currentUid);
-    cb.parentElement.style.opacity = cb.disabled ? 0.4 : 1;
+const modal = document.getElementById('appModal');
+const modalTitle = document.getElementById('modalTitle');
+const modalHint = document.getElementById('modalHint');
+const modalBody = document.getElementById('modalBody');
+function closeModal() { modal.classList.remove('open'); }
+modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+const ICON_EDIT = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+const ICON_DEL = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>';
+
+// --- Modifier une situation dangereuse ---
+function openEditRisk(rid) {
+  const r = RISKS[rid];
+  modalTitle.textContent = 'Modifier la situation dangereuse';
+  modalHint.textContent = '';
+  modalBody.innerHTML =
+    '<form method="post" action="/risks/' + rid + '/update">' +
+    '<label class="modal-label">Risque<input name="hazard" id="modalHazard" value="' + r.hazard.replace(/"/g, '&quot;') + '" autocomplete="off" class="hazard-input" style="width:100%"></label>' +
+    '<label class="modal-label">Situation dangereuse<input name="situation" value="' + r.situation.replace(/"/g, '&quot;') + '" style="width:100%"></label>' +
+    '<div class="modal-cols">' +
+    '<label class="modal-label">Fréquence<select name="frequency">' + [1,2,3,4].map(v => '<option ' + (v===r.frequency?'selected':'') + '>' + v + '</option>').join('') + '</select></label>' +
+    '<label class="modal-label">Gravité<select name="severity">' + [1,2,4,8].map(v => '<option ' + (v===r.severity?'selected':'') + '>' + v + '</option>').join('') + '</select></label>' +
+    '<label class="modal-label">Maîtrise<select name="mastery">' + [0.5,1,2].map(v => '<option value="' + v + '" ' + (v===r.mastery?'selected':'') + '>' + v.toString().replace('.', ',') + '</option>').join('') + '</select></label>' +
+    '</div><div class="actions-row"><button type="button" class="btn ghost" onclick="closeModal()">Annuler</button>' +
+    '<button type="submit" class="btn">Enregistrer</button></div></form>';
+  modal.classList.add('open');
+}
+
+// --- Mesures de prévention ---
+function openMeasures(rid) {
+  const r = RISKS[rid];
+  modalTitle.textContent = 'Mesures de prévention';
+  modalHint.textContent = r.hazard + ' — ' + r.situation;
+  let html = '';
+  r.measures.forEach(m => {
+    html += '<div class="modal-line"><form method="post" action="/measures/' + m.id + '/update" class="inline" style="gap:4px;flex:1">' +
+      '<input name="text" value="' + m.text.replace(/"/g, '&quot;') + '" style="flex:1">' +
+      '<button class="icon-btn" type="submit" title="Modifier">' + ICON_EDIT + '</button></form>' +
+      '<form method="post" action="/measures/' + m.id + '/delete" style="display:inline">' +
+      '<button class="icon-btn del" type="submit" title="Supprimer">' + ICON_DEL + '</button></form></div>';
   });
-  dupModal.classList.add('open');
+  if (!r.measures.length) html += '<p class="hint">Aucune mesure pour le moment.</p>';
+  html += '<form method="post" action="/risks/' + rid + '/measures/add" class="inline" style="gap:4px;margin-top:10px">' +
+    '<input name="text" placeholder="Nouvelle mesure de prévention..." style="flex:1" required>' +
+    '<button class="btn small" type="submit" title="Ajouter">+</button></form>';
+  html += '<div class="actions-row"><button type="button" class="btn ghost" onclick="closeModal()">Fermer</button></div>';
+  modalBody.innerHTML = html;
+  modal.classList.add('open');
 }
-function closeDupModal() { dupModal.classList.remove('open'); }
-dupModal.addEventListener('click', function(e) { if (e.target === dupModal) closeDupModal(); });
 
-// Menu de choix d'un risque : liste déroulante personnalisée, s'ouvre au clic
-// même si le champ contient déjà une valeur. Positionnée en « fixed » pour
-// flotter au-dessus du tableau sans être rognée par les cellules.
-var openHazardMenu = null;
-function closeHazardMenu() {
-  if (openHazardMenu) { openHazardMenu.remove(); openHazardMenu = null; }
+// --- Actions de prévention ---
+function openActions(rid) {
+  const r = RISKS[rid];
+  modalTitle.textContent = 'Actions de prévention';
+  modalHint.textContent = r.hazard + ' — ' + r.situation;
+  let html = '';
+  r.actions.forEach(a => {
+    html += '<div class="modal-line"><form method="post" action="/actions/' + a.id + '/update" class="inline" style="gap:4px;flex:1">' +
+      '<input name="text" value="' + a.text.replace(/"/g, '&quot;') + '" style="flex:1" placeholder="Action">' +
+      '<input name="actor" value="' + a.actor.replace(/"/g, '&quot;') + '" placeholder="Acteur" style="width:100px">' +
+      '<input name="due_date" type="date" value="' + a.due_date + '" style="width:135px">' +
+      '<button class="icon-btn" type="submit" title="Modifier">' + ICON_EDIT + '</button></form>' +
+      '<form method="post" action="/actions/' + a.id + '/delete" style="display:inline">' +
+      '<button class="icon-btn del" type="submit" title="Supprimer">' + ICON_DEL + '</button></form></div>';
+  });
+  if (!r.actions.length) html += '<p class="hint">Aucune action pour le moment.</p>';
+  html += '<form method="post" action="/risks/' + rid + '/actions/add" class="inline" style="gap:4px;margin-top:10px">' +
+    '<input name="text" placeholder="Nouvelle action..." style="flex:1" required>' +
+    '<input name="actor" placeholder="Acteur" style="width:100px">' +
+    '<input name="due_date" type="date" style="width:135px">' +
+    '<button class="btn small" type="submit" title="Ajouter">+</button></form>';
+  html += '<div class="actions-row"><button type="button" class="btn ghost" onclick="closeModal()">Fermer</button></div>';
+  modalBody.innerHTML = html;
+  modal.classList.add('open');
 }
+
+// --- Duplication d'une situation dangereuse ---
+function openDupModal(rid, currentUid) {
+  modalTitle.textContent = 'Dupliquer la situation dangereuse';
+  modalHint.textContent = 'Cochez les unités de travail vers lesquelles copier cette situation (avec ses mesures et actions).';
+  const units = {{ units | tojson }};
+  let html = '<form method="post" action="/risks/' + rid + '/duplicate" id="dupRiskForm"><div class="ut-list">';
+  units.forEach(u => {
+    const disabled = u.id === currentUid ? 'disabled style="opacity:.4"' : '';
+    html += '<label><input type="checkbox" name="targets[]" value="' + u.id + '" ' + disabled + ' form="dupRiskForm"> ' + u.name + '</label>';
+  });
+  html += '</div><div class="actions-row">' +
+    '<button type="button" class="btn ghost" onclick="closeModal()">Annuler</button>' +
+    '<button type="submit" class="btn">Dupliquer</button></div></form>';
+  modalBody.innerHTML = html;
+  modal.classList.add('open');
+}
+
+// --- Menu de choix d'un risque (s'ouvre au clic, flotte au-dessus de tout) ---
+var openHazardMenu = null;
+function closeHazardMenu() { if (openHazardMenu) { openHazardMenu.remove(); openHazardMenu = null; } }
 document.addEventListener('click', function(e) {
   if (openHazardMenu && !openHazardMenu.contains(e.target)) closeHazardMenu();
   const inp = e.target.closest ? e.target.closest('.hazard-input') : null;
   if (!inp) return;
-  if (openHazardMenu && openHazardMenu.dataset.for === inp.name + '-' + inp.form.getAttribute('action')) {
-    closeHazardMenu(); return;
-  }
-  closeHazardMenu();
+  e.stopPropagation();
+  if (openHazardMenu) { closeHazardMenu(); return; }
   const menu = document.createElement('div');
   menu.className = 'hazard-menu';
-  menu.dataset.for = inp.name + '-' + inp.form.getAttribute('action');
   const rect = inp.getBoundingClientRect();
   let top = rect.bottom + window.scrollY + 2;
-  const menuMaxH = 260;
   const spaceBelow = window.innerHeight - rect.bottom;
-  const height = Math.min(menuMaxH, CATALOG.length * 30 + 30);
-  if (spaceBelow < 120 && rect.top > height) top = rect.top + window.scrollY - height - 2;
+  if (spaceBelow < 140 && rect.top > 280) top = rect.top + window.scrollY - 292;
   menu.style.cssText = 'position:absolute;z-index:9999;background:#fff;border:1px solid #D4D4C4;' +
-    'border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.15);max-height:' + menuMaxH + 'px;overflow:auto;' +
-    'min-width:280px;width:340px;left:' + Math.min(rect.left + window.scrollX, document.documentElement.scrollWidth - 350) + 'px;top:' + top + 'px';
-  menu.addEventListener('click', function(ev) { ev.stopPropagation(); });
+    'border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.15);max-height:280px;overflow:auto;' +
+    'width:340px;left:' + Math.max(8, Math.min(rect.left + window.scrollX, document.documentElement.scrollWidth - 350)) + 'px;top:' + top + 'px';
   CATALOG.forEach(function(item) {
-    const label = item[0];
-    const desc = item[1];
     const opt = document.createElement('div');
-    opt.textContent = label;
-    opt.title = desc;
+    opt.textContent = item[0];
+    opt.title = item[1];
     opt.style.cssText = 'padding:6px 10px;cursor:pointer;font-size:0.82rem;white-space:nowrap';
-    opt.onmouseenter = function() { opt.style.background = '#F5F0E8'; };
-    opt.onmouseleave = function() { opt.style.background = '#fff'; };
-    opt.onclick = function() { inp.value = label; closeHazardMenu(); };
+    opt.onmouseenter = () => opt.style.background = '#F5F0E8';
+    opt.onmouseleave = () => opt.style.background = '#fff';
+    opt.onclick = function(ev) { ev.stopPropagation(); inp.value = item[0]; closeHazardMenu(); };
     menu.appendChild(opt);
   });
   const hint = document.createElement('div');
@@ -395,5 +409,15 @@ document.addEventListener('click', function(e) {
 });
 document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeHazardMenu(); });
 </script>
+<style>
+.modal-label { display: flex; flex-direction: column; font-size: 0.78rem; color: #4b5563; gap: 3px; margin-bottom: 8px; }
+.modal-cols { display: flex; gap: 10px; }
+.modal-cols .modal-label { flex: 1; }
+.modal-line { display: flex; align-items: center; gap: 4px; padding: 3px 0; border-bottom: 1px solid #F0EBE0; }
+.risk-count { font-size: 0.7rem; font-weight: 400; opacity: 0.8; margin-left: 8px; }
+.badge { font-size: 0.62rem; background: var(--cream); border: 1px solid var(--grey); border-radius: 999px; padding: 0 5px; margin-left: 1px; }
+table.risks.compact td { padding: 7px 8px; }
+table.risks.compact .num { text-align: center; }
+</style>
 <p class="footer">JHC Consulting — duerp.pro — Cotation : Fréquence (1-4) × Gravité (1, 2, 4, 8) × Maîtrise (0,5 / 1 / 2)</p>
 {% endblock %}
