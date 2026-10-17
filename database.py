@@ -81,16 +81,32 @@ def init_db():
     conn.close()
 
 
-def create_admin(email="admin@duerp.pro", password="changeme"):
+def create_admin(email="admin@duerp.pro", password="changeme", update_existing=True):
+    """Crée le compte super-admin s'il n'existe pas.
+
+    Si le compte existe déjà avec le mot de passe par défaut « changeme », il est
+    mis à jour avec le mot de passe fourni (permet à `python init_db.py` de
+    reprendre la main sur un compte auto-créé par un simple `python app.py`).
+    Un compte dont le mot de passe a déjà été changé n'est jamais modifié.
+    """
     conn = get_db()
-    existing = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+    existing = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    result = "unchanged"
     if not existing:
         conn.execute(
             "INSERT INTO users (email, password_hash, full_name, role) VALUES (?,?,?,?)",
             (email, generate_password_hash(password), "Administrateur", "admin"),
         )
-        conn.commit()
+        result = "created"
+    elif update_existing and existing["role"] == "admin" and check_password_hash(existing["password_hash"], "changeme"):
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (generate_password_hash(password), existing["id"]),
+        )
+        result = "updated"
+    conn.commit()
     conn.close()
+    return result
 
 
 def verify_user(email, password):
