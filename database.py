@@ -20,6 +20,20 @@ CREATE TABLE IF NOT EXISTS clients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
     logo_path TEXT NOT NULL DEFAULT '',
+    ai_enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS kb_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    hazard TEXT NOT NULL DEFAULT '',
+    situation TEXT NOT NULL DEFAULT '',
+    frequency INTEGER NOT NULL DEFAULT 2,
+    severity INTEGER NOT NULL DEFAULT 2,
+    mastery REAL NOT NULL DEFAULT 1,
+    measures TEXT NOT NULL DEFAULT '',   -- une mesure par ligne
+    actions TEXT NOT NULL DEFAULT '',    -- une action par ligne : texte | acteur | date
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

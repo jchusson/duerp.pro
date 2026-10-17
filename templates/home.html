@@ -60,6 +60,14 @@
       <form method="post" action="{{ url_for('archive_version') }}" style="margin-top:6px">
         <button class="btn small" type="submit" title="Archive une version PDF du DUERP">📁 Archiver une version</button>
       </form>
+      <div style="margin-top:8px">
+        <a class="linklike" style="font-size:0.78rem" href="{{ url_for('kb_list') }}">📚 Base de connaissances</a>
+      </div>
+      {% if g.user.role == 'admin' %}
+      <form method="post" action="{{ url_for('client_ai_toggle') }}" style="margin-top:6px" id="aiToggleForm">
+        <button class="btn small ghost" type="button" id="aiToggleBtn" onclick="toggleAI()">✨ IA : …</button>
+      </form>
+      {% endif %}
       {% if archives %}
       <div class="archive-list">
         {% for ar in archives %}
@@ -387,9 +395,29 @@ function renderRiskModal(rid, keepScroll) {
 
 function closeModalAndReload() { window.location.href = '/'; }
 
+// --- Activation/désactivation IA (par client) ---
+const AI_CLIENT_ENABLED = {{ 'true' if ai_client_enabled else 'false' }};
+function refreshAIBtn() {
+  const btn = document.getElementById('aiToggleBtn');
+  if (!btn) return;
+  btn.textContent = AI_CLIENT_ENABLED ? '✨ IA : activée' : '✨ IA : désactivée';
+  btn.title = AI_CLIENT_ENABLED ? 'Désactiver l\'assistant IA pour ce client' : 'Activer l\'assistant IA pour ce client';
+}
+function toggleAI() {
+  fetch('/client/ai-toggle', { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      window.AI_CLIENT_ENABLED = d.ai_enabled;
+      window.AI_ENABLED = d.ai_enabled;
+      refreshAIBtn();
+    })
+    .catch(() => alert('Erreur lors du basculement.'));
+}
+document.addEventListener('DOMContentLoaded', refreshAIBtn);
+
 // --- Assistant IA Mistral ---
 function aiSuggestSituations(uid, unitName) {
-  if (!AI_ENABLED) { alert("Clé API Mistral non configurée sur le serveur (variable MISTRAL_API_KEY)."); return; }
+  if (!AI_CLIENT_ENABLED) { alert("L'assistant IA est désactivé pour ce client (bouton ✨ IA du tableau de bord)."); return; }
   modalTitle.textContent = '✨ Situations dangereuses suggérées';
   modalHint.textContent = unitName + ' — vérifiez et ajustez chaque proposition avant de l\'ajouter.';
   modalBody.innerHTML = '<p class="hint">Génération en cours...</p>';
@@ -426,7 +454,7 @@ function aiSuggestSituations(uid, unitName) {
 }
 
 function aiSuggestMeasures(rid) {
-  if (!AI_ENABLED) { alert("Clé API Mistral non configurée sur le serveur (variable MISTRAL_API_KEY)."); return; }
+  if (!AI_CLIENT_ENABLED) { alert("L'assistant IA est désactivé pour ce client."); return; }
   const r = RISKS[rid];
   const btns = document.querySelectorAll('.ai-sugg-btn');
   btns.forEach(b => b.disabled = true);

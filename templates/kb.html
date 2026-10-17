@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Base de connaissances — {{ client.name }}{% endblock %}
+{% block body %}
+<div class="topbar">
+  <div class="container">
+    <a class="brand" href="{{ url_for('home') }}"><img class="logo" style="height:26px" src="{{ url_for('static', filename='logo-jhc.png') }}" alt="JHC">DUERP<span>.pro</span></a>
+    <span style="margin-left:auto;color:#fff">Base de connaissances — {{ client.name }}</span>
+    <a href="{{ url_for('home') }}" style="color:#fff">Retour</a>
+  </div>
+</div>
+<div class="container">
+  {% with messages = get_flashed_messages() %}
+    {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+  {% endwith %}
+  <div class="card">
+    <h2>Base de connaissances de prévention</h2>
+    <p class="hint">Ces entrées servent en priorité aux suggestions (bouton ✨) : les situations classiques de vos métiers, avec leurs cotations, mesures et actions types. Elles restent privées et propres à ce client. Une entrée par situation ; une mesure ou action par ligne (action au format « texte | acteur | date AAAA-MM-JJ », acteur et date facultatifs).</p>
+    <form method="post" action="{{ url_for('kb_add') }}">
+      <div class="form-grid">
+        <label>Risque <input name="hazard" list="riskCatalog" placeholder="Ex. Chute de plain-pied" required></label>
+        <label class="full">Situation dangereuse <input name="situation" placeholder="Ex. Sol mouillé autour du bassin" required style="min-width:300px"></label>
+        <label>Fréquence <select name="frequency">{% for v in [1,2,3,4] %}<option>{{ v }}</option>{% endfor %}</select></label>
+        <label>Gravité <select name="severity">{% for v in [1,2,4,8] %}<option>{{ v }}</option>{% endfor %}</select></label>
+        <label>Maîtrise <select name="mastery">{% for v in [0.5,1,2] %}<option value="{{ v }}">{{ '%g'|format(v)|replace('.', ',') }}</option>{% endfor %}</select></label>
+        <label class="full">Mesures de prévention types (une par ligne)
+          <textarea name="measures" rows="3" placeholder="Signalétique antidérapante&#10;Rantonnement régulier"></textarea></label>
+        <label class="full">Actions types (une par ligne : texte | acteur | date)
+          <textarea name="actions" rows="3" placeholder="Étendre le rantonnement | Responsable technique | 2027-06-30&#10;Former les agents aux sols glissants"></textarea></label>
+      </div>
+      <div style="margin-top:12px">
+        <button class="btn" type="submit">Ajouter à la base</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Entrées existantes ({{ entries|length }})</h2>
+    <table class="admin">
+      <tr><th>Risque</th><th>Situation</th><th>F</th><th>G</th><th>M</th><th>Mesures</th><th>Actions</th><th></th></tr>
+      {% for e in entries %}
+      <tr>
+        <td>{{ e.hazard }}</td>
+        <td>{{ e.situation }}</td>
+        <td>{{ e.frequency }}</td>
+        <td>{{ e.severity }}</td>
+        <td>{{ '%g'|format(e.mastery)|replace('.', ',') }}</td>
+        <td class="kb-multiline">{{ e.measures }}</td>
+        <td class="kb-multiline">{{ e.actions }}</td>
+        <td>
+          <form method="post" action="{{ url_for('kb_delete', eid=e.id) }}">
+            <button class="linklike" type="submit">Supprimer</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" style="color:#6b7280">Aucune entrée pour le moment.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+<datalist id="riskCatalog">
+  {% for label, desc in catalog %}
+  <option value="{{ label }}"></option>
+  {% endfor %}
+</datalist>
+<style>
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.form-grid label { display: flex; flex-direction: column; font-size: 0.78rem; color: #4b5563; gap: 3px; }
+.form-grid label.full { grid-column: 1 / -1; }
+.kb-multiline { white-space: pre-line; font-size: 0.78rem; }
+</style>
+{% endblock %}

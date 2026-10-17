@@ -10,6 +10,60 @@ def is_configured():
     return bool(os.environ.get("MISTRAL_API_KEY"))
 
 
+def kb_recent(conn, client_id, limit=6):
+    """Entrées les plus récentes de la base de connaissances du client."""
+    rows = conn.execute(
+        "SELECT * FROM kb_entries WHERE client_id=? ORDER BY id DESC LIMIT ?",
+        (client_id, limit),
+    ).fetchall()
+    out = []
+    for r in rows:
+        out.append({
+            "hazard": r["hazard"],
+            "situation": r["situation"],
+            "frequency": r["frequency"],
+            "severity": r["severity"],
+            "mastery": r["mastery"],
+            "measures": [m.strip() for m in (r["measures"] or "").split("\n") if m.strip()],
+            "actions": [a.strip() for a in (r["actions"] or "").split("\n") if a.strip()],
+            "source": "base de connaissances",
+        })
+    return out
+
+
+def kb_match(conn, client_id, query, limit=6):
+    """Cherche dans la base de connaissances du client les entrées dont le
+    risque ou la situation contiennent la chaîne cherchée (accents/casse
+    ignorés). Retourne une liste normalisée de suggestions."""
+    import unicodedata
+    def norm(s):
+        s = unicodedata.normalize("NFD", (s or "").lower())
+        return "".join(c for c in s if unicodedata.category(c) != "Mn")
+    q = norm(query)
+    if not q:
+        return []
+    rows = conn.execute(
+        "SELECT * FROM kb_entries WHERE client_id=?", (client_id,)
+    ).fetchall()
+    out = []
+    for r in rows:
+        hay = norm(r["hazard"] + " " + r["situation"])
+        if q in hay:
+            out.append({
+                "hazard": r["hazard"],
+                "situation": r["situation"],
+                "frequency": r["frequency"],
+                "severity": r["severity"],
+                "mastery": r["mastery"],
+                "measures": [m.strip() for m in (r["measures"] or "").split("\n") if m.strip()],
+                "actions": [a.strip() for a in (r["actions"] or "").split("\n") if a.strip()],
+                "source": "base de connaissances",
+            })
+            if len(out) >= limit:
+                break
+    return out
+
+
 def _chat(messages, timeout=30):
     key = os.environ["MISTRAL_API_KEY"]
     payload = json.dumps({

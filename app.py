@@ -173,6 +173,8 @@ def home():
     archives = conn.execute(
         "SELECT * FROM archives WHERE client_id=? ORDER BY id DESC LIMIT 5", (client["id"],)
     ).fetchall()
+    ai_client_enabled = bool(conn.execute(
+        "SELECT ai_enabled FROM clients WHERE id=?", (client["id"],)).fetchone()[0])
     conn.close()
     from risk_catalog import RISQUE_CATALOG
     return render_template(
@@ -181,7 +183,8 @@ def home():
         units_shown=units_shown,
         filters_active=filters_active,
         catalog=RISQUE_CATALOG,
-        ai_enabled=ai.is_configured(),
+        ai_enabled=ai.is_configured() and ai_client_enabled,
+        ai_client_enabled=ai_client_enabled,
         last_update=last_update,
         last_archive=dict(last_archive) if last_archive else None,
         archives=[dict(x) for x in archives],
@@ -809,10 +812,35 @@ def download_archive(aid):
 
 # ---------------- Assistant IA (Mistral) ----------------
 
+def _client_ai_enabled(cl):
+    conn = database.get_db()
+    row = conn.execute("SELECT ai_enabled FROM clients WHERE id=?", (cl["id"],)).fetchone()
+    conn.close()
+    return bool(row and row["ai_enabled"])
+
+
+@app.route("/client/ai-toggle", methods=["POST"])
+@login_required
+def client_ai_toggle():
+    cl = current_client()
+    if not cl:
+        abort(403)
+    if g.user["role"] != "admin":
+        abort(403)
+    conn = database.get_db()
+    conn.execute("UPDATE clients SET ai_enabled = 1 - ai_enabled WHERE id=?", (cl["id"],))
+    conn.commit()
+    state = conn.execute("SELECT ai_enabled FROM clients WHERE id=?", (cl["id"],)).fetchone()
+    conn.close()
+    return jsonify({"ai_enabled": bool(state["ai_enabled"])})
+
+
 @app.route("/ai/status")
 @login_required
 def ai_status():
-    return jsonify({"configured": ai.is_configured()})
+    cl = current_client()
+    enabled = _client_ai_enabled(cl) if cl else False
+    return jsonify({"configured": ai.is_configured(), "client_enabled": enabled})
 
 
 @app.route("/ai/suggest-situations", methods=["POST"])
@@ -821,31 +849,53 @@ def ai_suggest_situations():
     cl = current_client()
     if not cl:
         abort(403)
-    if not ai.is_configured():
-        return jsonify({"error": "Clé API Mistral non configurée (MISTRAL_API_KEY)."}), 503
+    if not _client_ai_enabled(cl):
+        return jsonify({"error": "L'assistant IA est désactivé pour ce client."}), 503
     data = request.get_json(silent=True) or {}
     unit_name = (data.get("unit_name") or "").strip()
     if not unit_name:
         return jsonify({"error": "Unité de travail manquante."}), 400
-    try:
-        suggestions = ai.suggest_situations(unit_name)
-    except Exception as e:
-        return jsonify({"error": "Erreur API Mistral : %s" % e}), 502
-    valid = []
-    for s in suggestions:
+    # 1) base de connaissances du client (prioritaire, sans API)
+    conn = database.get_db()
+    suggestions = []
+    seen = set()
+    for kw in [w for w in unit_name.replace("-", " ").split() if len(w) > 3]:
+        for s in ai.kb_match(conn, cl["id"], kw):
+            key = (s["hazard"], s["situation"])
+            if key not in seen:
+                seen.add(key)
+                suggestions.append(s)
+        if len(suggestions) >= 6:
+            break
+    if not suggestions:
+        # pas de correspondance par mots-clés : proposer les entrées
+        # classiques du client (les plus récemment ajoutées)
+        for s in ai.kb_recent(conn, cl["id"], 6):
+            key = (s["hazard"], s["situation"])
+            if key not in seen:
+                seen.add(key)
+                suggestions.append(s)
+    conn.close()
+    # 2) complément Mistral si configurée et activée globalement
+    if len(suggestions) < 6 and ai.is_configured():
         try:
-            f = int(s.get("frequency"))
-            g = int(s.get("severity"))
-            m = float(s.get("mastery"))
-        except (TypeError, ValueError):
-            continue
-        if f in FREQ and g in SEV and m in MASTERY:
-            valid.append({
-                "hazard": str(s.get("hazard", "")).strip(),
-                "situation": str(s.get("situation", "")).strip(),
-                "frequency": f, "severity": g, "mastery": m,
-            })
-    return jsonify({"suggestions": valid[:6]})
+            for s in ai.suggest_situations(unit_name)[:6 - len(suggestions)]:
+                try:
+                    f, g, m = int(s.get("frequency")), int(s.get("severity")), float(s.get("mastery"))
+                except (TypeError, ValueError):
+                    continue
+                if f in FREQ and g in SEV and m in MASTERY:
+                    suggestions.append({
+                        "hazard": str(s.get("hazard", "")).strip(),
+                        "situation": str(s.get("situation", "")).strip(),
+                        "frequency": f, "severity": g, "mastery": m,
+                        "source": "Mistral AI",
+                    })
+        except Exception:
+            pass
+    if not suggestions and not ai.is_configured():
+        return jsonify({"error": "Aucune correspondance dans la base de connaissances et clé API Mistral non configurée."}), 503
+    return jsonify({"suggestions": suggestions[:6]})
 
 
 @app.route("/ai/suggest-measures", methods=["POST"])
@@ -854,18 +904,87 @@ def ai_suggest_measures():
     cl = current_client()
     if not cl:
         abort(403)
-    if not ai.is_configured():
-        return jsonify({"error": "Clé API Mistral non configurée (MISTRAL_API_KEY)."}), 503
+    if not _client_ai_enabled(cl):
+        return jsonify({"error": "L'assistant IA est désactivé pour ce client."}), 503
     data = request.get_json(silent=True) or {}
     hazard = (data.get("hazard") or "").strip()
     situation = (data.get("situation") or "").strip()
     if not hazard or not situation:
         return jsonify({"error": "Risque et situation requis."}), 400
-    try:
-        result = ai.suggest_measures(hazard, situation)
-    except Exception as e:
-        return jsonify({"error": "Erreur API Mistral : %s" % e}), 502
+    result = {"measures": [], "actions": [], "source": "base de connaissances"}
+    conn = database.get_db()
+    for s in ai.kb_match(conn, cl["id"], hazard + " " + situation):
+        result["measures"].extend(s["measures"])
+        result["actions"].extend(s["actions"])
+    conn.close()
+    if not result["measures"] and not result["actions"] and ai.is_configured():
+        try:
+            api_result = ai.suggest_measures(hazard, situation)
+            result = {**api_result, "source": "Mistral AI"}
+        except Exception as e:
+            return jsonify({"error": "Erreur API Mistral : %s" % e}), 502
+    if not result["measures"] and not result["actions"]:
+        return jsonify({"error": "Aucune correspondance dans la base de connaissances et clé API Mistral non configurée."}), 503
     return jsonify(result)
+
+
+# ---------------- Base de connaissances ----------------
+
+@app.route("/kb")
+@login_required
+def kb_list():
+    cl = current_client()
+    if not cl:
+        abort(403)
+    conn = database.get_db()
+    entries = conn.execute(
+        "SELECT * FROM kb_entries WHERE client_id=? ORDER BY id DESC", (cl["id"],)
+    ).fetchall()
+    conn.close()
+    from risk_catalog import RISQUE_CATALOG
+    return render_template("kb.html", client=cl, entries=[dict(e) for e in entries],
+                           catalog=RISQUE_CATALOG,
+                           clients=database.user_clients(g.user))
+
+
+@app.route("/kb/add", methods=["POST"])
+@login_required
+def kb_add():
+    cl = current_client()
+    if not cl:
+        abort(403)
+    try:
+        f = int(request.form.get("frequency", 2))
+        g = int(request.form.get("severity", 2))
+        m = float(request.form.get("mastery", 1))
+    except (TypeError, ValueError):
+        abort(400)
+    if f not in FREQ or g not in SEV or m not in MASTERY:
+        abort(400)
+    conn = database.get_db()
+    conn.execute(
+        "INSERT INTO kb_entries (client_id, hazard, situation, frequency, severity, mastery, measures, actions) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (cl["id"], request.form.get("hazard", "").strip(), request.form.get("situation", "").strip(),
+         f, g, m, request.form.get("measures", "").strip(), request.form.get("actions", "").strip()),
+    )
+    conn.commit()
+    conn.close()
+    flash("Entrée ajoutée à la base de connaissances.", "success")
+    return redirect(url_for("kb_list"))
+
+
+@app.route("/kb/<int:eid>/delete", methods=["POST"])
+@login_required
+def kb_delete(eid):
+    cl = current_client()
+    if not cl:
+        abort(403)
+    conn = database.get_db()
+    conn.execute("DELETE FROM kb_entries WHERE id=? AND client_id=?", (eid, cl["id"]))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("kb_list"))
 
 
 # ---------------- Exports ----------------
