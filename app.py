@@ -162,6 +162,17 @@ def home():
         units_shown = [u for u in units_shown if u["risks"]]
 
     high = sum(1 for u in units for r in u["risks"] if crit_value(r) >= 16)
+
+    conn = database.get_db()
+    last_update = _last_update(conn, client["id"])
+    last_archive = conn.execute(
+        "SELECT created_at, filename FROM archives WHERE client_id=? "
+        "ORDER BY id DESC LIMIT 1", (client["id"],)
+    ).fetchone()
+    archives = conn.execute(
+        "SELECT * FROM archives WHERE client_id=? ORDER BY id DESC LIMIT 5", (client["id"],)
+    ).fetchall()
+    conn.close()
     from risk_catalog import RISQUE_CATALOG
     return render_template(
         "home.html", client=client, units=units, actions=actions_plan,
@@ -169,6 +180,9 @@ def home():
         units_shown=units_shown,
         filters_active=filters_active,
         catalog=RISQUE_CATALOG,
+        last_update=last_update,
+        last_archive=dict(last_archive) if last_archive else None,
+        archives=[dict(x) for x in archives],
         clients=database.user_clients(g.user),
     )
 
@@ -642,12 +656,180 @@ def delete_action(aid):
     return redirect(url_for("home"))
 
 
+# ---------------- Fiche d'identité / logo / archives ----------------
+
+INFO_FIELDS = [
+    "raison_sociale", "siret", "telephone", "adresse", "convention_collective",
+    "instance_representa",
+]
+INFO_INTS = [
+    "cdi", "cdd", "interim", "alternance", "externe", "hommes", "femmes", "rqth",
+    "salle_repos", "refectoire", "restaurant", "distributeur",
+    "aeration", "ventilation", "clim", "chauffage", "vestiaires", "douches", "toilettes",
+    "travail_nuit", "travail_poste", "travail_alternance",
+    "at_avec_arret", "at_incapacite", "nb_enquetes",
+    "mcp_medecin", "mcp_autres", "mp_medecin", "mp_autre_medecin",
+]
+INFO_TEXTS = [
+    "med_organisme", "med_medecin", "med_tel", "med_adresse",
+    "it_inspecteur", "it_tel", "it_adresse",
+    "locaux", "hygiene_autres", "jours_travail", "temps_travail",
+    "at_commentaires", "mcp_nature",
+]
+
+
+@app.route("/client/info", methods=["GET", "POST"])
+@login_required
+def client_info():
+    cl = current_client()
+    if not cl:
+        abort(403)
+    conn = database.get_db()
+    if request.method == "POST":
+        vals = {}
+        for f in INFO_FIELDS + INFO_TEXTS:
+            vals[f] = request.form.get(f, "").strip()
+        for f in INFO_INTS:
+            try:
+                vals[f] = int(request.form.get(f, 0) or 0)
+            except ValueError:
+                vals[f] = 0
+        sets = ", ".join("%s=?" % f for f in vals)
+        exists = conn.execute("SELECT client_id FROM client_info WHERE client_id=?", (cl["id"],)).fetchone()
+        if exists:
+            conn.execute(
+                "UPDATE client_info SET %s, updated_at=datetime('now','localtime') WHERE client_id=?" % sets,
+                (*vals.values(), cl["id"]))
+        else:
+            conn.execute(
+                "INSERT INTO client_info (client_id, %s) VALUES (?,%s)" % (
+                    ", ".join(vals), ", ".join("?" * len(vals))),
+                (cl["id"], *vals.values()))
+        conn.commit()
+        flash("Fiche d'identité enregistrée.", "success")
+        conn.close()
+        return redirect(url_for("client_info"))
+    row = conn.execute("SELECT * FROM client_info WHERE client_id=?", (cl["id"],)).fetchone()
+    conn.close()
+    return render_template("client_info.html", client=cl, info=dict(row) if row else {},
+                           clients=database.user_clients(g.user))
+
+
+@app.route("/admin/clients/<int:cid>/logo", methods=["POST"])
+@login_required
+@admin_required
+def upload_client_logo(cid):
+    logo = request.files.get("logo")
+    if not logo or not logo.filename:
+        flash("Aucun fichier reçu.", "error")
+        return redirect(url_for("admin"))
+    ext = os.path.splitext(logo.filename)[1].lower()
+    if ext not in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"):
+        flash("Format non supporté (PNG, JPG, GIF, WebP ou SVG).", "error")
+        return redirect(url_for("admin"))
+    upload_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    filename = "client_%d_logo%s" % (cid, ext)
+    logo.save(os.path.join(upload_dir, filename))
+    conn = database.get_db()
+    conn.execute("UPDATE clients SET logo_path=? WHERE id=?", (os.path.join(upload_dir, filename), cid))
+    conn.commit()
+    conn.close()
+    flash("Logo du client enregistré.", "success")
+    return redirect(url_for("admin"))
+
+
+@app.route("/uploads/<path:filename>")
+def uploaded_file(filename):
+    upload_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+    return send_file(os.path.join(upload_dir, filename))
+
+
+@app.route("/archive", methods=["POST"])
+@login_required
+def archive_version():
+    cl = current_client()
+    if not cl:
+        abort(403)
+    client, units, actions = _load_export_data()
+    buf = io.BytesIO()
+    exports.build_pdf(client, units, actions, buf)
+    archive_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "archives")
+    os.makedirs(archive_dir, exist_ok=True)
+    from datetime import datetime
+    stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    filename = "DUERP_%s_%s.pdf" % (client["name"].replace(" ", "_"), stamp)
+    with open(os.path.join(archive_dir, filename), "wb") as f:
+        f.write(buf.getvalue())
+    conn = database.get_db()
+    conn.execute(
+        "INSERT INTO archives (client_id, filename) VALUES (?,?)", (client["id"], filename))
+    conn.commit()
+    conn.close()
+    flash("Version archivée : %s" % filename, "success")
+    return redirect(url_for("home"))
+
+
+@app.route("/archive/<int:aid>/download")
+@login_required
+def download_archive(aid):
+    cl = current_client()
+    if not cl:
+        abort(403)
+    conn = database.get_db()
+    row = conn.execute("SELECT * FROM archives WHERE id=? AND client_id=?", (aid, cl["id"])).fetchone()
+    conn.close()
+    if not row:
+        abort(404)
+    archive_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "archives")
+    return send_file(os.path.join(archive_dir, row["filename"]), as_attachment=True,
+                     download_name=row["filename"])
+
+
 # ---------------- Exports ----------------
+
+def _client_full(client_id):
+    """Client avec logo (chemin absolu) et fiche d'identité."""
+    conn = database.get_db()
+    row = conn.execute("SELECT * FROM clients WHERE id=?", (client_id,)).fetchone()
+    info = conn.execute("SELECT * FROM client_info WHERE client_id=?", (client_id,)).fetchone()
+    conn.close()
+    c = dict(row) if row else {}
+    c["logo_abs"] = c.get("logo_path") or None
+    c["info"] = dict(info) if info else {}
+    return c
+
+
+def _last_update(conn, client_id):
+    """Date de dernière modification du contenu DUERP d'un client."""
+    dates = []
+    for table, col, where in (
+        ("work_units", "created_at", "client_id"),
+        ("risks", "created_at", None),
+        ("measures", "created_at", None),
+        ("actions", "created_at", None),
+        ("action_items", "created_at", "client_id"),
+        ("client_info", "updated_at", "client_id"),
+    ):
+        try:
+            if where:
+                rows = conn.execute("SELECT %s FROM %s WHERE %s=?" % (col, table, where), (client_id,)).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT t.%s FROM %s t JOIN risks r ON r.id=t.risk_id "
+                    "JOIN work_units w ON w.id=r.work_unit_id WHERE w.client_id=?" % (col, table),
+                    (client_id,)).fetchall()
+            dates.extend(r[0] for r in rows if r[0])
+        except Exception:
+            pass
+    return max(dates) if dates else None
+
 
 def _load_export_data():
     client = current_client()
     if not client:
         abort(403)
+    client = _client_full(client["id"])
     units = _load_units(client["id"])
     conn = database.get_db()
     actions = [dict(a) for a in conn.execute(

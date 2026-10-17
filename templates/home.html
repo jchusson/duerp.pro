@@ -7,7 +7,7 @@
 {% block body %}
 <div class="topbar">
   <div class="container">
-    <a class="brand" href="{{ url_for('home') }}"><img class="logo" src="{{ url_for('static', filename='logo-jhc.png') }}" alt="JHC">DUERP<span>.pro</span></a>
+    <a class="brand" href="{{ url_for('home') }}"><img class="logo" style="height:26px" src="{{ url_for('static', filename='logo-jhc.png') }}" alt="JHC">DUERP<span>.pro</span></a>
     {% if clients|length > 1 %}
     <form class="client-select" method="post" action="{{ url_for('select_client', client_id=client.id) }}">
       <label style="color:#fff">Client :</label>
@@ -48,7 +48,22 @@
   {% endwith %}
 
   <div class="stats">
-    <div class="stat"><div class="num">{{ units|length }}</div><div class="lbl">Unités de travail</div></div>
+    <div class="stat"><div class="lbl">Dernière mise à jour du DUERP</div><div class="num small">{{ last_update or '—' }}</div>
+      {% if last_archive %}<div class="lbl">Dernier archivage : {{ last_archive.created_at }}</div>{% else %}<div class="lbl">Aucun archivage</div>{% endif %}
+      <form method="post" action="{{ url_for('archive_version') }}" style="margin-top:6px">
+        <button class="btn small" type="submit" title="Archive une version PDF du DUERP">📁 Archiver une version</button>
+      </form>
+      {% if archives %}
+      <div class="archive-list">
+        {% for ar in archives %}
+        <a href="{{ url_for('download_archive', aid=ar.id) }}" title="Télécharger l'archive">📥 {{ ar.filename }}</a>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    <div class="stat"><div class="num">{{ units|length }}</div><div class="lbl">Unités de travail</div>
+      <a href="{{ url_for('client_info') }}" class="linklike" style="font-size:0.78rem">Fiche d'identité de l'établissement</a>
+    </div>
     <div class="stat"><div class="num">{{ count_risks }}</div><div class="lbl">Risques évalués</div></div>
     <div class="stat"><div class="num">{{ count_high }}</div><div class="lbl">Risques ≥ 16 (prioritaires)</div></div>
     <div class="stat"><div class="num">{{ actions|length }}</div><div class="lbl">Actions du plan d'action</div></div>

@@ -20,8 +20,19 @@
       <button class="btn secondary" type="submit">Ajouter le client</button>
     </form>
     <table class="admin">
-      <tr><th>Nom</th></tr>
-      {% for c in clients %}<tr><td>{{ c.name }}</td></tr>{% endfor %}
+      <tr><th>Nom</th><th>Logo de l'entreprise</th></tr>
+      {% for c in clients %}
+      <tr>
+        <td>{{ c.name }}</td>
+        <td>
+          {% if c.logo_path %}<img src="{{ url_for('uploaded_file', filename=c.logo_path.split('/')[-1]) }}" style="height:32px;vertical-align:middle"> {% endif %}
+          <form method="post" action="{{ url_for('upload_client_logo', cid=c.id) }}" enctype="multipart/form-data" class="inline" style="gap:4px">
+            <input type="file" name="logo" accept=".png,.jpg,.jpeg,.gif,.webp,.svg" required>
+            <button class="btn small secondary" type="submit">Téléverser</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
     </table>
   </div>
 

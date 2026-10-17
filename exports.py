@@ -63,11 +63,11 @@ def _header_footer(canvas, doc, client_name, doc_title):
     canvas.rect(0, h - 12 * mm, w, 12 * mm, stroke=0, fill=1)
     canvas.setFillColor(colors.white)
     canvas.setFont("Helvetica-Bold", 9)
-    canvas.drawString(15 * mm, h - 8 * mm, "DUERP.pro — JHC Consulting")
-    canvas.drawRightString(w - 15 * mm, h - 8 * mm, client_name)
+    canvas.drawString(10 * mm, h - 8 * mm, "DUERP.pro — JHC Consulting")
+    canvas.drawRightString(w - 10 * mm, h - 8 * mm, client_name)
     canvas.setFillColor(BLACK)
     canvas.setFont("Helvetica", 8)
-    canvas.drawString(15 * mm, 6 * mm, doc_title)
+    canvas.drawString(10 * mm, 6 * mm, doc_title)
     canvas.restoreState()
 
 
@@ -90,12 +90,6 @@ LEGAL_TEXT = [
      "professionnels ; 2) Des actions d'information et de formation ; 3) La mise en place d'une organisation et de "
      "moyens adaptés. L'employeur veille à l'adaptation de ces mesures pour tenir compte du changement des "
      "circonstances et tendre à l'amélioration des situations existantes."),
-    ("Art. L. 4121-2", "L'employeur met en œuvre les mesures prévues à l'article L. 4121-1 sur le fondement des "
-     "principes généraux de prévention suivants : éviter les risques ; évaluer les risques qui ne peuvent pas être "
-     "évités ; combattre les risques à la source ; adapter le travail à l'homme ; tenir compte de l'état "
-     "d'évolution de la technique ; remplacer ce qui est dangereux ; planifier la prévention ; prendre des mesures "
-     "de protection collective en priorité sur les mesures de protection individuelle ; donner les instructions "
-     "appropriées aux travailleurs."),
     ("Art. L. 4121-3", "L'employeur, compte tenu de la nature des activités de l'établissement, évalue les risques "
      "pour la santé et la sécurité des travailleurs, y compris dans le choix des procédés de fabrication, des "
      "équipements de travail, des substances ou préparations chimiques, dans l'aménagement ou le réaménagement des "
@@ -106,6 +100,23 @@ LEGAL_TEXT = [
      "expositions. L'employeur transcrit et met à jour dans le document unique les résultats de l'évaluation des "
      "risques pour la santé et la sécurité des travailleurs à laquelle il procède en application de l'article "
      "L. 4121-3."),
+]
+
+PREVENTION_PRINCIPLES = [
+    "Éviter les risques",
+    "Évaluer les risques qui ne peuvent pas être évités",
+    "Combattre les risques à la source",
+    "Adapter le travail à l'homme, en particulier en ce qui concerne la conception des postes de travail ainsi "
+    "que le choix des équipements de travail et des méthodes de travail et de production, en vue notamment de "
+    "limiter le travail monotone et le travail cadencé et de réduire les effets de ceux-ci sur la santé",
+    "Tenir compte de l'état d'évolution de la technique",
+    "Remplacer ce qui est dangereux par ce qui n'est pas dangereux ou par ce qui est moins dangereux",
+    "Planifier la prévention en y intégrant, dans un ensemble cohérent, la technique, l'organisation du travail, "
+    "les conditions de travail, les relations sociales et l'influence des facteurs ambiants, notamment les "
+    "risques liés au harcèlement moral et au harcèlement sexuel",
+    "Prendre des mesures de protection collective en leur donnant la priorité sur les mesures de protection "
+    "individuelle",
+    "Donner les instructions appropriées aux travailleurs",
 ]
 
 METHODO_STEPS = [
@@ -137,22 +148,106 @@ def build_pdf(client, units, actions, buffer):
     today = date.today().strftime("%d/%m/%Y")
     doc = SimpleDocTemplate(
         buffer, pagesize=landscape(A4),
-        leftMargin=15 * mm, rightMargin=15 * mm, topMargin=18 * mm, bottomMargin=14 * mm,
+        leftMargin=12 * mm, rightMargin=12 * mm, topMargin=20 * mm, bottomMargin=12 * mm,
         title="Document Unique — %s" % client["name"],
     )
     story = []
 
     # Page de garde
+    logos = []
+    client_logo = client.get("logo_abs")
+    if client_logo and os.path.exists(client_logo):
+        logos.append(Image(client_logo, width=32 * mm, height=32 * mm))
     if os.path.exists(LOGO_PATH):
-        story.append(Image(LOGO_PATH, width=45 * mm, height=45 * mm))
-    story.append(Spacer(1, 18 * mm))
+        logos.append(Image(LOGO_PATH, width=20 * mm, height=20 * mm))
+    if logos:
+        logo_tbl = Table([logos], colWidths=[40 * mm] * len(logos))
+        logo_tbl.setStyle(TableStyle([("ALIGN", (0, 0), (-1, -1), "LEFT"), ("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
+        story.append(logo_tbl)
+    story.append(Spacer(1, 10 * mm))
     story.append(Paragraph(client["name"].upper(), styles["title"]))
     story.append(Spacer(1, 6 * mm))
     story.append(Paragraph("DOCUMENT UNIQUE", styles["h1"]))
     story.append(Paragraph("DE TRANSCRIPTION DES RÉSULTATS DE L'ÉVALUATION DES RISQUES PROFESSIONNELS", styles["subtitle"]))
-    story.append(Spacer(1, 8 * mm))
+    story.append(Spacer(1, 6 * mm))
     story.append(Paragraph("Établi en réponse aux exigences des articles L. 4121-1 à L. 4121-3 du Code du Travail.", styles["normal"]))
     story.append(Paragraph("Mise à jour le %s" % today, styles["normal"]))
+    story.append(Spacer(1, 10 * mm))
+
+    # Trois cadres de visa
+    visa_titles = ["Visa du Chef d'établissement", "Visa du Rédacteur", "Visa du CSE / CST"]
+    visa_cells = []
+    for t in visa_titles:
+        visa_cells.append([Paragraph("<b>%s</b>" % t, styles["cell"]), Spacer(1, 16 * mm), Paragraph("Nom :", styles["cell"]), Paragraph("Date :", styles["cell"]), Paragraph("Signature :", styles["cell"])])
+    visa_tbl = Table([visa_cells], colWidths=[80 * mm, 80 * mm, 80 * mm])
+    visa_tbl.setStyle(TableStyle([
+        ("BOX", (0, 0), (0, 0), 1, BLACK),
+        ("BOX", (1, 0), (1, 0), 1, BLACK),
+        ("BOX", (2, 0), (2, 0), 1, BLACK),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    story.append(visa_tbl)
+    story.append(PageBreak())
+
+    # Fiche d'identité de l'établissement
+    info = client.get("info") or {}
+    story.append(Paragraph("Fiche d'identité de l'établissement", styles["h1"]))
+    story.append(Spacer(1, 3 * mm))
+    def _row(label, val):
+        return Paragraph("<b>%s</b>" % label, styles["cell"]), Paragraph(str(val or ""), styles["cell"])
+    rows = [
+        _row("Raison sociale", info.get("raison_sociale") or client["name"]),
+        _row("SIRET", info.get("siret")),
+        _row("Téléphone", info.get("telephone")),
+        _row("Adresse", info.get("adresse")),
+        _row("Convention collective", info.get("convention_collective")),
+        _row("Instance de représentation", info.get("instance_representa")),
+    ]
+    eff = info.get("cdi", 0) or 0
+    total = sum(int(info.get(k) or 0) for k in ("cdi", "cdd", "interim", "alternance", "externe"))
+    rows += [
+        _row("Effectifs CDI / CDD / Intérim / Alternance / Externe", "%s / %s / %s / %s / %s" % (
+            info.get("cdi", 0), info.get("cdd", 0), info.get("interim", 0), info.get("alternance", 0), info.get("externe", 0))),
+        _row("Total effectif", total),
+        _row("Dont Hommes / Femmes / RQTH", "%s / %s / %s" % (info.get("hommes", 0), info.get("femmes", 0), info.get("rqth", 0))),
+        _row("Médecine du travail — organisme", info.get("med_organisme")),
+        _row("Médecin du travail", info.get("med_medecin")),
+        _row("Téléphone médecine", info.get("med_tel")),
+        _row("Adresse médecine", info.get("med_adresse")),
+        _row("Inspection du travail — inspecteur", info.get("it_inspecteur")),
+        _row("Téléphone inspection", info.get("it_tel")),
+        _row("Adresse inspection", info.get("it_adresse")),
+    ]
+    def _yn(v):
+        return "Oui" if v else "Non"
+    rows += [
+        _row("Salle de repos / Réfectoire / Restaurant / Distributeur", "%s / %s / %s / %s" % (
+            _yn(info.get("salle_repos")), _yn(info.get("refectoire")), _yn(info.get("restaurant")), _yn(info.get("distributeur")))),
+        _row("Caractéristiques des locaux", info.get("locaux")),
+        _row("Aération / Ventilation / Climatisation / Chauffage", "%s / %s / %s / %s" % (
+            _yn(info.get("aeration")), _yn(info.get("ventilation")), _yn(info.get("clim")), _yn(info.get("chauffage")))),
+        _row("Vestiaires / Douches / Toilettes", "%s / %s / %s" % (_yn(info.get("vestiaires")), _yn(info.get("douches")), _yn(info.get("toilettes")))),
+        _row("Autres (hygiène)", info.get("hygiene_autres")),
+        _row("Jours de travail", info.get("jours_travail")),
+        _row("Temps de travail", info.get("temps_travail")),
+        _row("Travail de nuit / posté / alternance", "%s / %s / %s" % (_yn(info.get("travail_nuit")), _yn(info.get("travail_poste")), _yn(info.get("travail_alternance")))),
+        _row("AT avec arrêt / avec incapacité permanente", "%s / %s" % (info.get("at_avec_arret", 0), info.get("at_incapacite", 0))),
+        _row("Nombre d'enquêtes sur les accidents", info.get("nb_enquetes", 0)),
+        _row("Commentaires", info.get("at_commentaires")),
+        _row("Maladies à caractère professionnel (médecin / autres sources)", "%s / %s" % (info.get("mcp_medecin", 0), info.get("mcp_autres", 0))),
+        _row("Nature", info.get("mcp_nature")),
+        _row("Maladies professionnelles (médecin du travail / autre médecin)", "%s / %s" % (info.get("mp_medecin", 0), info.get("mp_autre_medecin", 0))),
+    ]
+    fiche_tbl = Table(rows, colWidths=[95 * mm, 150 * mm])
+    fiche_tbl.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BACKGROUND", (0, 0), (0, -1), CREAM),
+    ]))
+    story.append(fiche_tbl)
     story.append(PageBreak())
 
     # Cadre légal
@@ -160,6 +255,12 @@ def build_pdf(client, units, actions, buffer):
     for title, text in LEGAL_TEXT:
         story.append(Paragraph(title, styles["h2"]))
         story.append(Paragraph(text, styles["normal"]))
+    story.append(Paragraph("Art. L. 4121-2 — Les 9 principes généraux de prévention", styles["h2"]))
+    story.append(Paragraph(
+        "L'employeur met en œuvre les mesures prévues à l'article L. 4121-1 sur le fondement des principes "
+        "généraux de prévention suivants :", styles["normal"]))
+    principles = [[Paragraph("<b>%d.</b> %s" % (i, p), styles["normal"])] for i, p in enumerate(PREVENTION_PRINCIPLES, 1)]
+    story.append(Table(principles, colWidths=[245 * mm], hAlign="LEFT"))
     story.append(PageBreak())
 
     # Méthodologie

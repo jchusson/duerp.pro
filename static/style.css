@@ -27,6 +27,7 @@ a { color: var(--blue); }
 }
 .topbar .container { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .topbar img.logo { height: 42px; background: #fff; border-radius: 50%; padding: 3px; }
+.topbar .brand img.logo { height: 26px; background: transparent; border-radius: 0; padding: 0; opacity: 0.9; }
 .topbar .brand { font-weight: 700; font-size: 1.15rem; color: #fff; text-decoration: none; display: flex; align-items: center; gap: 10px; }
 .topbar .brand span { color: var(--cream); }
 .topbar form.client-select { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-wrap: wrap; }
@@ -55,6 +56,9 @@ a { color: var(--blue); }
 .stat { background: #fff; border-radius: 10px; padding: 14px 20px; box-shadow: 0 1px 4px rgba(0,0,0,.08); min-width: 140px; }
 .stat .num { font-size: 1.6rem; font-weight: 700; color: var(--blue); }
 .stat .lbl { color: #6b7280; font-size: 0.85rem; }
+.stat .num.small { font-size: 0.95rem; font-weight: 600; }
+.archive-list { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
+.archive-list a { font-size: 0.72rem; }
 
 .card {
   background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.08);

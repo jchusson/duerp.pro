@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Fiche d'identité — {{ client.name }}{% endblock %}
+{% block body %}
+<div class="topbar">
+  <div class="container">
+    <a class="brand" href="{{ url_for('home') }}"><img class="logo" style="height:26px" src="{{ url_for('static', filename='logo-jhc.png') }}" alt="JHC">DUERP<span>.pro</span></a>
+    <span style="margin-left:auto;color:#fff">Fiche d'identité — {{ client.name }}</span>
+    <a href="{{ url_for('home') }}" style="color:#fff">Retour</a>
+  </div>
+</div>
+<div class="container">
+  {% with messages = get_flashed_messages() %}
+    {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+  {% endwith %}
+  <div class="card">
+    <h2>Fiche d'identité de l'établissement</h2>
+    <form method="post" action="{{ url_for('client_info') }}">
+      <h3 class="form-section">Renseignements d'ordre général</h3>
+      <div class="form-grid">
+        <label>Raison sociale <input name="raison_sociale" value="{{ info.raison_sociale or client.name }}"></label>
+        <label>SIRET <input name="siret" value="{{ info.siret or '' }}"></label>
+        <label>Téléphone <input name="telephone" value="{{ info.telephone or '' }}"></label>
+        <label>Adresse <textarea name="adresse" rows="2">{{ info.adresse or '' }}</textarea></label>
+        <label>Convention collective <input name="convention_collective" value="{{ info.convention_collective or '' }}"></label>
+        <label>Instance de représentation
+          <select name="instance_representa">
+            {% for opt in ['Aucune','Délégué du personnel','CSE','CE','CHSCT','CST'] %}
+            <option {{ 'selected' if info.instance_representa == opt }}>{{ opt }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+
+      <h3 class="form-section">Effectifs</h3>
+      <div class="form-grid">
+        {% for f, lbl in [('cdi','CDI'),('cdd','CDD'),('interim','Intérimaire(s)'),('alternance','Alternance'),('externe','Externe')] %}
+        <label>{{ lbl }} <input type="number" name="{{ f }}" min="0" value="{{ info[f] or 0 }}"></label>
+        {% endfor %}
+        <label>Homme(s) <input type="number" name="hommes" min="0" value="{{ info.hommes or 0 }}"></label>
+        <label>Femme(s) <input type="number" name="femmes" min="0" value="{{ info.femmes or 0 }}"></label>
+        <label>RQTH <input type="number" name="rqth" min="0" value="{{ info.rqth or 0 }}"></label>
+      </div>
+
+      <h3 class="form-section">Médecine du travail</h3>
+      <div class="form-grid">
+        <label>Organisme <input name="med_organisme" value="{{ info.med_organisme or '' }}"></label>
+        <label>Médecin <input name="med_medecin" value="{{ info.med_medecin or '' }}"></label>
+        <label>Téléphone <input name="med_tel" value="{{ info.med_tel or '' }}"></label>
+        <label>Adresse <textarea name="med_adresse" rows="2">{{ info.med_adresse or '' }}</textarea></label>
+      </div>
+
+      <h3 class="form-section">Inspection du travail</h3>
+      <div class="form-grid">
+        <label>Inspecteur <input name="it_inspecteur" value="{{ info.it_inspecteur or '' }}"></label>
+        <label>Téléphone <input name="it_tel" value="{{ info.it_tel or '' }}"></label>
+        <label>Adresse <textarea name="it_adresse" rows="2">{{ info.it_adresse or '' }}</textarea></label>
+      </div>
+
+      <h3 class="form-section">Installations générales</h3>
+      <div class="form-grid">
+        {% for f, lbl in [('salle_repos','Salle de repos'),('refectoire','Réfectoire'),('restaurant','Restaurant'),('distributeur','Distributeur')] %}
+        <label>{{ lbl }}
+          <select name="{{ f }}"><option value="0" {{ 'selected' if not info[f] }}>Non</option><option value="1" {{ 'selected' if info[f] }}>Oui</option></select>
+        </label>
+        {% endfor %}
+        <label class="full">Caractéristiques des locaux <textarea name="locaux" rows="2">{{ info.locaux or '' }}</textarea></label>
+      </div>
+
+      <h3 class="form-section">Hygiène générale</h3>
+      <div class="form-grid">
+        {% for f, lbl in [('aeration','Dispositif d\'aération'),('ventilation','Ventilation'),('clim','Air conditionné'),('chauffage','Chauffage'),('vestiaires','Vestiaires'),('douches','Douches'),('toilettes','Toilettes')] %}
+        <label>{{ lbl }}
+          <select name="{{ f }}"><option value="0" {{ 'selected' if not info[f] }}>Non</option><option value="1" {{ 'selected' if info[f] }}>Oui</option></select>
+        </label>
+        {% endfor %}
+        <label class="full">Autres <input name="hygiene_autres" value="{{ info.hygiene_autres or '' }}"></label>
+      </div>
+
+      <h3 class="form-section">Temps de travail</h3>
+      <div class="form-grid">
+        <label>Jours de travail <input name="jours_travail" placeholder="Ex. 220 jours par an" value="{{ info.jours_travail or '' }}"></label>
+        <label>Temps de travail <input name="temps_travail" placeholder="Ex. 35 heures par semaine" value="{{ info.temps_travail or '' }}"></label>
+        {% for f, lbl in [('travail_nuit','Travail de nuit'),('travail_poste','Travail posté'),('travail_alternance','Travail en alternance')] %}
+        <label>{{ lbl }}
+          <select name="{{ f }}"><option value="0" {{ 'selected' if not info[f] }}>Non</option><option value="1" {{ 'selected' if info[f] }}>Oui</option></select>
+        </label>
+        {% endfor %}
+      </div>
+
+      <h3 class="form-section">Accidents du travail</h3>
+      <div class="form-grid">
+        <label>Avec arrêt <input type="number" name="at_avec_arret" min="0" value="{{ info.at_avec_arret or 0 }}"></label>
+        <label>Avec incapacité permanente <input type="number" name="at_incapacite" min="0" value="{{ info.at_incapacite or 0 }}"></label>
+        <label>Nombre d'enquêtes <input type="number" name="nb_enquetes" min="0" value="{{ info.nb_enquetes or 0 }}"></label>
+        <label class="full">Commentaires <textarea name="at_commentaires" rows="2">{{ info.at_commentaires or '' }}</textarea></label>
+      </div>
+
+      <h3 class="form-section">Maladies à caractère professionnel</h3>
+      <div class="form-grid">
+        <label>Déclarées par le médecin du travail <input type="number" name="mcp_medecin" min="0" value="{{ info.mcp_medecin or 0 }}"></label>
+        <label>Issues d'autres sources <input type="number" name="mcp_autres" min="0" value="{{ info.mcp_autres or 0 }}"></label>
+        <label class="full">Nature <textarea name="mcp_nature" rows="2">{{ info.mcp_nature or '' }}</textarea></label>
+      </div>
+
+      <h3 class="form-section">Maladies professionnelles</h3>
+      <div class="form-grid">
+        <label>Sur avis du médecin du travail <input type="number" name="mp_medecin" min="0" value="{{ info.mp_medecin or 0 }}"></label>
+        <label>Sur avis d'un autre médecin <input type="number" name="mp_autre_medecin" min="0" value="{{ info.mp_autre_medecin or 0 }}"></label>
+      </div>
+
+      <div style="margin-top:16px">
+        <button class="btn" type="submit">Enregistrer la fiche d'identité</button>
+        <a class="btn ghost" href="{{ url_for('home') }}">Annuler</a>
+      </div>
+    </form>
+  </div>
+</div>
+<style>
+.form-section { color: var(--blue); font-size: 1rem; border-bottom: 1px solid var(--grey); padding-bottom: 4px; margin: 18px 0 10px; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.form-grid label { display: flex; flex-direction: column; font-size: 0.78rem; color: #4b5563; gap: 3px; }
+.form-grid label.full { grid-column: 1 / -1; }
+.form-grid input, .form-grid select, .form-grid textarea { width: 100%; }
+</style>
+{% endblock %}

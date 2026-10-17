@@ -19,7 +19,38 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS clients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
+    logo_path TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS client_info (
+    client_id INTEGER PRIMARY KEY REFERENCES clients(id) ON DELETE CASCADE,
+    raison_sociale TEXT DEFAULT '', siret TEXT DEFAULT '', telephone TEXT DEFAULT '',
+    adresse TEXT DEFAULT '', convention_collective TEXT DEFAULT '',
+    instance_representa TEXT DEFAULT 'Aucune',
+    cdi INTEGER DEFAULT 0, cdd INTEGER DEFAULT 0, interim INTEGER DEFAULT 0,
+    alternance INTEGER DEFAULT 0, externe INTEGER DEFAULT 0,
+    hommes INTEGER DEFAULT 0, femmes INTEGER DEFAULT 0, rqth INTEGER DEFAULT 0,
+    med_organisme TEXT DEFAULT '', med_medecin TEXT DEFAULT '', med_tel TEXT DEFAULT '', med_adresse TEXT DEFAULT '',
+    it_inspecteur TEXT DEFAULT '', it_tel TEXT DEFAULT '', it_adresse TEXT DEFAULT '',
+    salle_repos INTEGER DEFAULT 0, refectoire INTEGER DEFAULT 0, restaurant INTEGER DEFAULT 0,
+    distributeur INTEGER DEFAULT 0, locaux TEXT DEFAULT '',
+    aeration INTEGER DEFAULT 0, ventilation INTEGER DEFAULT 0, clim INTEGER DEFAULT 0,
+    chauffage INTEGER DEFAULT 0, vestiaires INTEGER DEFAULT 0, douches INTEGER DEFAULT 0,
+    toilettes INTEGER DEFAULT 0, hygiene_autres TEXT DEFAULT '',
+    jours_travail TEXT DEFAULT '', temps_travail TEXT DEFAULT '',
+    travail_nuit INTEGER DEFAULT 0, travail_poste INTEGER DEFAULT 0, travail_alternance INTEGER DEFAULT 0,
+    at_avec_arret INTEGER DEFAULT 0, at_incapacite INTEGER DEFAULT 0, nb_enquetes INTEGER DEFAULT 0, at_commentaires TEXT DEFAULT '',
+    mcp_medecin INTEGER DEFAULT 0, mcp_autres INTEGER DEFAULT 0, mcp_nature TEXT DEFAULT '',
+    mp_medecin INTEGER DEFAULT 0, mp_autre_medecin INTEGER DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS archives (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    filename TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -60,7 +91,8 @@ CREATE TABLE IF NOT EXISTS risks (
 CREATE TABLE IF NOT EXISTS measures (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     risk_id INTEGER NOT NULL REFERENCES risks(id) ON DELETE CASCADE,
-    text TEXT NOT NULL DEFAULT ''                -- mesure de prévention
+    text TEXT NOT NULL DEFAULT '',               -- mesure de prévention
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS actions (
@@ -68,7 +100,8 @@ CREATE TABLE IF NOT EXISTS actions (
     risk_id INTEGER NOT NULL REFERENCES risks(id) ON DELETE CASCADE,
     text TEXT NOT NULL DEFAULT '',               -- action de prévention
     actor TEXT NOT NULL DEFAULT '',              -- acteur qui réalisera l'action
-    due_date TEXT NOT NULL DEFAULT ''            -- date envisagée de réalisation
+    due_date TEXT NOT NULL DEFAULT '',           -- date envisagée de réalisation
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS action_items (
