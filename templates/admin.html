@@ -20,7 +20,7 @@
       <button class="btn secondary" type="submit">Ajouter le client</button>
     </form>
     <table class="admin">
-      <tr><th>Nom</th><th>Logo de l'entreprise</th></tr>
+      <tr><th>Nom</th><th>Logo de l'entreprise</th><th>Assistant IA</th></tr>
       {% for c in clients %}
       <tr>
         <td>{{ c.name }}</td>
@@ -29,6 +29,15 @@
           <form method="post" action="{{ url_for('upload_client_logo', cid=c.id) }}" enctype="multipart/form-data" class="inline" style="gap:4px">
             <input type="file" name="logo" accept=".png,.jpg,.jpeg,.gif,.webp,.svg" required>
             <button class="btn small secondary" type="submit">Téléverser</button>
+          </form>
+        </td>
+        <td>
+          <form method="post" action="{{ url_for('admin_ai_toggle', cid=c.id) }}">
+            {% if c.ai_enabled %}
+            <button class="btn small" type="submit" title="Désactiver l'IA pour ce client">✨ Activée — cliquer pour désactiver</button>
+            {% else %}
+            <button class="btn small ghost" type="submit" title="Activer l'IA pour ce client">✨ Désactivée — cliquer pour activer</button>
+            {% endif %}
           </form>
         </td>
       </tr>

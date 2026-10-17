@@ -1,6 +1,8 @@
 import io
 import os
 import sys
+import tempfile
+import time
 
 from flask import (
     Flask, abort, flash, g, jsonify, redirect, render_template,
@@ -928,7 +930,192 @@ def ai_suggest_measures():
     return jsonify(result)
 
 
+@app.route("/admin/clients/<int:cid>/ai-toggle", methods=["POST"])
+@login_required
+@admin_required
+def admin_ai_toggle(cid):
+    conn = database.get_db()
+    conn.execute("UPDATE clients SET ai_enabled = 1 - ai_enabled WHERE id=?", (cid,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("admin"))
+
+
 # ---------------- Base de connaissances ----------------
+
+ALLOWED_KB_EXT = (".xlsx", ".xls", ".csv", ".pdf", ".txt", ".md")
+
+
+def _kb_import_tabular(path):
+    """Importe un fichier tabulaire (xlsx/csv) au format DUERP."""
+    entries = []
+    import csv as _csv
+    rows = None
+    if path.lower().endswith((".xlsx", ".xls")):
+        from openpyxl import load_workbook
+        wb = load_workbook(path, read_only=True, data_only=True)
+        ws = wb.active or wb[wb.sheetnames[0]]
+        rows = [["" if c is None else str(c) for c in r] for r in ws.iter_rows(values_only=True)]
+        wb.close()
+    else:
+        with open(path, encoding="utf8", errors="ignore") as f:
+            sample = f.read(4096)
+            f.seek(0)
+            try:
+                delim = ";" if sample.count(";") >= sample.count(",") else ","
+                rows = list(_csv.reader(f, delimiter=delim))
+            except Exception:
+                return []
+    if not rows:
+        return []
+
+    def find(header, contains, equals=()):
+        for i, h in enumerate(header):
+            if h in equals:
+                return i
+        for i, h in enumerate(header):
+            if any(c in h for c in contains):
+                return i
+        return None
+
+    def detect(header):
+        def short_col(h):
+            return len(h) <= 30
+        cols = {
+            "hazard": find(header, ["risque", "danger", "classe de risques", "famille"]),
+            "situation": find(header, ["situation"]),
+            "measures": find(header, ["mesure"]),
+            "actions": find(header, ["action"]),
+            "frequency": find(header, ["fréquence", "frequence"], equals=("f",)),
+            "severity": find(header, ["gravité", "gravite"], equals=("g",)),
+            "mastery": find(header, ["maîtrise", "maitrise"], equals=("m",)),
+        }
+        # une vraie ligne d'en-tête : situation reconnue ET (risque OU mesure)
+        if cols["situation"] is None:
+            return None
+        if cols["hazard"] is None and cols["measures"] is None:
+            return None
+        # et la cellule « situation » doit être un intitulé court, pas une phrase de titre
+        if len(header[cols["situation"]]) > 40:
+            return None
+        return cols
+
+    cols = None
+    header_idx = 0
+    for i, row in enumerate(rows[:10]):
+        header = [str(h or "").strip().lower() for h in row]
+        cols = detect(header)
+        if cols:
+            header_idx = i
+            break
+    if not cols:
+        return []
+    for row in rows[header_idx + 1:]:
+        def g(key):
+            i = cols[key]
+            return (row[i].strip() if i is not None and i < len(row) else "")
+        hazard, situation = g("hazard"), g("situation")
+        if not hazard and not situation:
+            continue
+        try:
+            f = int(float(g("frequency") or 2))
+            sev = int(float(g("severity") or 2))
+            m = float(g("mastery") or 1)
+        except ValueError:
+            f, sev, m = 2, 2, 1
+        f = f if f in FREQ else 2
+        sev = sev if sev in SEV else 2
+        m = m if m in MASTERY else 1
+        measures = "\n".join(x.strip() for x in (g("measures").replace("\r", "").split("\n") + [g("measures")]) if x.strip())
+        actions = g("actions").replace("\r", "")
+        entries.append((hazard or situation, situation or hazard, f, sev, m, measures, actions))
+    return entries
+
+
+def _kb_import_pdf_text(path):
+    """Extrait le texte d'un PDF."""
+    try:
+        import pymupdf
+        doc = pymupdf.open(path)
+        text = "\n".join(p.get_text() for p in doc)
+        doc.close()
+        return text
+    except Exception:
+        return ""
+
+
+@app.route("/kb/import", methods=["POST"])
+@login_required
+def kb_import():
+    cl = current_client()
+    if not cl:
+        abort(403)
+    f = request.files.get("file")
+    if not f or not f.filename:
+        flash("Aucun fichier reçu.", "error")
+        return redirect(url_for("kb_list"))
+    ext = os.path.splitext(f.filename)[1].lower()
+    if ext not in ALLOWED_KB_EXT:
+        flash("Format non supporté. Formats acceptés : Excel (.xlsx/.xls), CSV, PDF, texte (.txt/.md).", "error")
+        return redirect(url_for("kb_list"))
+    tmp = os.path.join(tempfile.gettempdir(), "kb_import_%d%s" % (int(time.time() * 1000), ext))
+    f.save(tmp)
+    entries = []
+    if ext in (".xlsx", ".xls", ".csv"):
+        entries = _kb_import_tabular(tmp)
+        source = "fichier"
+    else:
+        text = open(tmp, encoding="utf8", errors="ignore").read() if ext in (".txt", ".md") else _kb_import_pdf_text(tmp)
+        if not text.strip():
+            flash("Impossible de lire le contenu du fichier.", "error")
+            os.remove(tmp)
+            return redirect(url_for("kb_list"))
+        if ai.is_configured():
+            try:
+                raw = ai.extract_situations(text)
+            except Exception as e:
+                flash("Erreur API Mistral : %s" % e, "error")
+                os.remove(tmp)
+                return redirect(url_for("kb_list"))
+            for e in raw:
+                try:
+                    feq = int(e.get("frequency"))
+                    sev = int(e.get("severity"))
+                    m = float(e.get("mastery"))
+                except (TypeError, ValueError):
+                    feq, sev, m = 2, 2, 1
+                feq = feq if feq in FREQ else 2
+                sev = sev if sev in SEV else 2
+                m = m if m in MASTERY else 1
+                measures = "\n".join(str(x) for x in (e.get("measures") or []) if str(x).strip())
+                acts = []
+                for act in (e.get("actions") or []):
+                    if isinstance(act, dict) and act.get("text"):
+                        acts.append(" | ".join([act["text"], act.get("actor", ""), act.get("due_date", "")]).rstrip(" |"))
+                entries.append((str(e.get("hazard", "")).strip(), str(e.get("situation", "")).strip(),
+                                feq, sev, m, measures, "\n".join(acts)))
+            source = "IA"
+        else:
+            flash("Pour les PDF et documents texte, la clé API Mistral est nécessaire (MISTRAL_API_KEY). Les fichiers Excel/CSV s'importent sans clé.", "error")
+            os.remove(tmp)
+            return redirect(url_for("kb_list"))
+    os.remove(tmp)
+    if not entries:
+        flash("Aucune situation dangereuse n'a pu être extraite du fichier.", "error")
+        return redirect(url_for("kb_list"))
+    conn = database.get_db()
+    for hz, st, feq, sev, m, ms, ac in entries[:200]:
+        conn.execute(
+            "INSERT INTO kb_entries (client_id, hazard, situation, frequency, severity, mastery, measures, actions) "
+            "VALUES (?,?,?,?,?,?,?,?)", (cl["id"], hz, st, feq, sev, m, ms, ac))
+    conn.commit()
+    n = len(entries[:200])
+    conn.close()
+    flash("%d entrée(s) ajoutée(s) à la base de connaissances (source : %s)." % (n, source), "success")
+    return redirect(url_for("kb_list"))
+
+
+@app.route("/kb")
 
 @app.route("/kb")
 @login_required

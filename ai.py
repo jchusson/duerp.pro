@@ -123,6 +123,27 @@ def suggest_situations(work_unit_name):
     return _post(prompt).get("suggestions", [])
 
 
+def extract_situations(text):
+    """Extrait des situations dangereuses structurées depuis un texte
+    (DUERP existant, liste de risques, tout document)."""
+    prompt = (
+        "Voici un document ou extrait de document relatif à des risques professionnels "
+        "(peut être un DUERP, une liste de situations dangereuses, un compte rendu).\n\n"
+        "Extrait toutes les situations dangereuses identifiables. Pour chacune : famille de "
+        "risque (libellé DUERP court, ex. 'Chute de plain-pied'), description de la situation "
+        "en une phrase, fréquence (1-4 : 1 = 0-10%% du temps, 4 = 70-100%%), gravité (1, 2, 4 "
+        "ou 8), maîtrise (0.5, 1 ou 2), mesures de prévention existantes (liste), actions de "
+        "prévention (liste d'objets avec texte, acteur, due_date). Si une information est "
+        "absente du document, propose une valeur plausible pour frequency/severity/mastery et "
+        "laisse les listes vides. Limite à 40 situations les plus pertinentes.\n\n"
+        "Document :\n" + text[:15000] + "\n\n"
+        "Format JSON strict : {\"entries\": [{\"hazard\": \"...\", \"situation\": \"...\", "
+        "\"frequency\": n, \"severity\": n, \"mastery\": n, \"measures\": [\"...\"], "
+        "\"actions\": [{\"text\": \"...\", \"actor\": \"...\", \"due_date\": \"AAAA-MM-JJ\"}]}]}"
+    )
+    return _post(prompt).get("entries", [])
+
+
 def suggest_measures(hazard, situation):
     """Propose des mesures de prévention et des actions pour une situation dangereuse."""
     prompt = (

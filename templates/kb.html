@@ -13,8 +13,19 @@
     {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
   {% endwith %}
   <div class="card">
-    <h2>Base de connaissances de prévention</h2>
-    <p class="hint">Ces entrées servent en priorité aux suggestions (bouton ✨) : les situations classiques de vos métiers, avec leurs cotations, mesures et actions types. Elles restent privées et propres à ce client. Une entrée par situation ; une mesure ou action par ligne (action au format « texte | acteur | date AAAA-MM-JJ », acteur et date facultatifs).</p>
+    <h2>Alimenter la base par import de documents</h2>
+    <p class="hint">Soumettez un DUERP existant ou tout fichier listant des situations dangereuses :<br>
+    • <b>Excel (.xlsx/.xls) ou CSV</b> — import direct, sans clé API : le fichier doit contenir des colonnes repérables (Risque, Situation dangereuse, F, G, M, Mesures, Actions). Les exports Excel de ce logiciel sont directement réutilisables.<br>
+    • <b>PDF ou texte (.txt/.md)</b> — analyse par l'IA Mistral (clé API requise) qui extrait les situations, cotations, mesures et actions du document.</p>
+    <form method="post" action="{{ url_for('kb_import') }}" enctype="multipart/form-data" class="inline">
+      <input type="file" name="file" accept=".xlsx,.xls,.csv,.pdf,.txt,.md" required>
+      <button class="btn" type="submit">📥 Importer</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Ajout manuel d'une entrée</h2>
+    <p class="hint">Une entrée par situation ; une mesure ou action par ligne (action au format « texte | acteur | date AAAA-MM-JJ », acteur et date facultatifs).</p>
     <form method="post" action="{{ url_for('kb_add') }}">
       <div class="form-grid">
         <label>Risque <input name="hazard" list="riskCatalog" placeholder="Ex. Chute de plain-pied" required></label>
