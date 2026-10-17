@@ -57,6 +57,12 @@ a { color: var(--blue); }
 .stat .num { font-size: 1.6rem; font-weight: 700; color: var(--blue); }
 .stat .lbl { color: #6b7280; font-size: 0.85rem; }
 .stat .num.small { font-size: 0.95rem; font-weight: 600; }
+.ai-sugg { border: 1px solid var(--grey); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #fff; }
+.ai-sugg-main { flex: 1; min-width: 200px; font-size: 0.85rem; }
+.ai-sugg-meta { font-size: 0.78rem; color: #6b7280; }
+.btn.ghost { background: transparent; color: var(--blue); border: 1px solid var(--blue); }
+.btn.small.ghost { font-size: 0.72rem; padding: 2px 8px; }
+
 .archive-list { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
 .archive-list a { font-size: 0.72rem; }
 

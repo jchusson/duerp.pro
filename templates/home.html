@@ -158,6 +158,7 @@
   <div class="unit-card">
     <div class="unit-title">
       <h3>{{ u.name }} <span class="risk-count">{{ u.risks|length }} situation(s)</span></h3>
+      <button class="btn small ghost ai-btn" type="button" title="Proposer des situations dangereuses avec l'IA Mistral" onclick="aiSuggestSituations({{ u.id }}, '{{ u.name | replace("'", "\\'") }}')">✨ Situations suggérées</button>
       <div class="actions-bar">
         <form method="post" action="{{ url_for('rename_work_unit', uid=u.id) }}" class="inline" style="gap:4px">
           <input name="name" value="{{ u.name }}" style="max-width:240px">
@@ -284,6 +285,7 @@
 </div>
 
 <script>
+const AI_ENABLED = {{ 'true' if ai_enabled else 'false' }};
 const CATALOG = {{ catalog | tojson }};
 const RISKS = {};
 {% for u in units %}{% for r in u.risks %}
@@ -351,7 +353,9 @@ function renderRiskModal(rid, keepScroll) {
     '<label class="modal-label">Situation dangereuse<input name="situation" value="' + esc(r.situation) + '" style="width:100%"></label>' +
     '</form>' +
     '<hr class="modal-sep">' +
-    '<h4 class="modal-sec">Mesures de prévention existantes</h4>';
+    '<h4 class="modal-sec">Mesures de prévention existantes ' +
+    (AI_ENABLED ? '<button class="btn small ghost ai-sugg-btn" type="button" onclick="aiSuggestMeasures(' + rid + ')" title="Proposer des mesures et actions avec l\'IA Mistral">✨ Suggérer</button>' : '') +
+    '</h4>';
   r.measures.forEach(m => {
     html += '<div class="modal-line">' + lineForm('/measures/' + m.id + '/update',
       '<input name="text" value="' + esc(m.text) + '" style="flex:1">') +
@@ -382,6 +386,76 @@ function renderRiskModal(rid, keepScroll) {
 }
 
 function closeModalAndReload() { window.location.href = '/'; }
+
+// --- Assistant IA Mistral ---
+function aiSuggestSituations(uid, unitName) {
+  if (!AI_ENABLED) { alert("Clé API Mistral non configurée sur le serveur (variable MISTRAL_API_KEY)."); return; }
+  modalTitle.textContent = '✨ Situations dangereuses suggérées';
+  modalHint.textContent = unitName + ' — vérifiez et ajustez chaque proposition avant de l\'ajouter.';
+  modalBody.innerHTML = '<p class="hint">Génération en cours...</p>';
+  modal.classList.add('open');
+  fetch('/ai/suggest-situations', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({unit_name: unitName})
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) { modalBody.innerHTML = '<p class="flash">' + data.error + '</p>'; return; }
+    if (!data.suggestions.length) { modalBody.innerHTML = '<p class="hint">Aucune suggestion exploitable.</p>'; return; }
+    let html = '';
+    data.suggestions.forEach(s => {
+      const crit = s.frequency * s.severity * s.mastery;
+      const critClass = crit <= 3 ? 'low' : (crit < 16 ? 'mid' : 'high');
+      html += '<div class="ai-sugg"><div class="ai-sugg-main">' +
+        '<b>' + htmlEsc(s.hazard) + '</b> — ' + htmlEsc(s.situation) +
+        '</div><div class="ai-sugg-meta">F' + s.frequency + ' × G' + s.severity + ' × M' + s.mastery.toString().replace('.', ',') +
+        ' = <span class="crit ' + critClass + '">' + crit.toString().replace('.', ',') + '</span></div>' +
+        '<form method="post" action="/risks/add">' +
+        '<input type="hidden" name="work_unit_id" value="' + uid + '">' +
+        '<input type="hidden" name="hazard" value="' + s.hazard.replace(/"/g, '&quot;') + '">' +
+        '<input type="hidden" name="situation" value="' + s.situation.replace(/"/g, '&quot;') + '">' +
+        '<input type="hidden" name="frequency" value="' + s.frequency + '">' +
+        '<input type="hidden" name="severity" value="' + s.severity + '">' +
+        '<input type="hidden" name="mastery" value="' + s.mastery + '">' +
+        '<button class="btn small" type="submit">Ajouter</button></form></div>';
+    });
+    html += '<div class="actions-row"><button type="button" class="btn ghost" onclick="closeModal()">Fermer</button></div>';
+    modalBody.innerHTML = html;
+  })
+  .catch(() => { modalBody.innerHTML = '<p class="flash">Erreur de communication avec le serveur.</p>'; });
+}
+
+function aiSuggestMeasures(rid) {
+  if (!AI_ENABLED) { alert("Clé API Mistral non configurée sur le serveur (variable MISTRAL_API_KEY)."); return; }
+  const r = RISKS[rid];
+  const btns = document.querySelectorAll('.ai-sugg-btn');
+  btns.forEach(b => b.disabled = true);
+  fetch('/ai/suggest-measures', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({hazard: r.hazard, situation: r.situation})
+  })
+  .then(r2 => r2.json())
+  .then(data => {
+    btns.forEach(b => b.disabled = false);
+    if (data.error) { alert(data.error); return; }
+    data.measures.forEach(m => {
+      fetch('/risks/' + rid + '/measures/add', {
+        method: 'POST', headers: {'X-Requested-With': 'fetch'},
+        body: new URLSearchParams({text: m})
+      });
+    });
+    data.actions.forEach(a => {
+      fetch('/risks/' + rid + '/actions/add', {
+        method: 'POST', headers: {'X-Requested-With': 'fetch'},
+        body: new URLSearchParams({text: a.text, actor: a.actor || '', due_date: a.due_date || ''})
+      });
+    });
+    fetch('/risks/' + rid + '/state')
+      .then(r3 => r3.json())
+      .then(state => { RISKS[rid] = state; renderRiskModal(rid, true); });
+  })
+  .catch(() => { btns.forEach(b => b.disabled = false); alert('Erreur de communication.'); });
+}
 
 // --- Duplication d'une situation dangereuse ---
 function openDupModal(rid, currentUid) {

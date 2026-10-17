@@ -11,6 +11,7 @@ from werkzeug.security import generate_password_hash
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import database
 import exports
+import ai
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", os.urandom(24).hex())
@@ -180,6 +181,7 @@ def home():
         units_shown=units_shown,
         filters_active=filters_active,
         catalog=RISQUE_CATALOG,
+        ai_enabled=ai.is_configured(),
         last_update=last_update,
         last_archive=dict(last_archive) if last_archive else None,
         archives=[dict(x) for x in archives],
@@ -415,6 +417,25 @@ def update_risk(rid):
         return jsonify(state)
     conn.close()
     return redirect(url_for("home"))
+
+
+@app.route("/risks/<int:rid>/state")
+@login_required
+def risk_state(rid):
+    cl = current_client()
+    if not cl:
+        abort(403)
+    conn = database.get_db()
+    row = conn.execute(
+        "SELECT id FROM risks WHERE id=? AND work_unit_id IN "
+        "(SELECT id FROM work_units WHERE client_id=?)", (rid, cl["id"])
+    ).fetchone()
+    if not row:
+        conn.close()
+        abort(404)
+    state = _risk_state(conn, rid)
+    conn.close()
+    return jsonify(state)
 
 
 @app.route("/risks/<int:rid>/duplicate", methods=["POST"])
@@ -784,6 +805,67 @@ def download_archive(aid):
     archive_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "archives")
     return send_file(os.path.join(archive_dir, row["filename"]), as_attachment=True,
                      download_name=row["filename"])
+
+
+# ---------------- Assistant IA (Mistral) ----------------
+
+@app.route("/ai/status")
+@login_required
+def ai_status():
+    return jsonify({"configured": ai.is_configured()})
+
+
+@app.route("/ai/suggest-situations", methods=["POST"])
+@login_required
+def ai_suggest_situations():
+    cl = current_client()
+    if not cl:
+        abort(403)
+    if not ai.is_configured():
+        return jsonify({"error": "Clé API Mistral non configurée (MISTRAL_API_KEY)."}), 503
+    data = request.get_json(silent=True) or {}
+    unit_name = (data.get("unit_name") or "").strip()
+    if not unit_name:
+        return jsonify({"error": "Unité de travail manquante."}), 400
+    try:
+        suggestions = ai.suggest_situations(unit_name)
+    except Exception as e:
+        return jsonify({"error": "Erreur API Mistral : %s" % e}), 502
+    valid = []
+    for s in suggestions:
+        try:
+            f = int(s.get("frequency"))
+            g = int(s.get("severity"))
+            m = float(s.get("mastery"))
+        except (TypeError, ValueError):
+            continue
+        if f in FREQ and g in SEV and m in MASTERY:
+            valid.append({
+                "hazard": str(s.get("hazard", "")).strip(),
+                "situation": str(s.get("situation", "")).strip(),
+                "frequency": f, "severity": g, "mastery": m,
+            })
+    return jsonify({"suggestions": valid[:6]})
+
+
+@app.route("/ai/suggest-measures", methods=["POST"])
+@login_required
+def ai_suggest_measures():
+    cl = current_client()
+    if not cl:
+        abort(403)
+    if not ai.is_configured():
+        return jsonify({"error": "Clé API Mistral non configurée (MISTRAL_API_KEY)."}), 503
+    data = request.get_json(silent=True) or {}
+    hazard = (data.get("hazard") or "").strip()
+    situation = (data.get("situation") or "").strip()
+    if not hazard or not situation:
+        return jsonify({"error": "Risque et situation requis."}), 400
+    try:
+        result = ai.suggest_measures(hazard, situation)
+    except Exception as e:
+        return jsonify({"error": "Erreur API Mistral : %s" % e}), 502
+    return jsonify(result)
 
 
 # ---------------- Exports ----------------
