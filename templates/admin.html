@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Administration{% endblock %}
+{% block body %}
+<div class="topbar">
+  <div class="container">
+    <a class="brand" href="{{ url_for('home') }}"><img class="logo" src="{{ url_for('static', filename='logo-jhc.png') }}" alt="JHC">DUERP<span>.pro</span></a>
+    <span style="margin-left:auto;color:#fff">Administration</span>
+    <a href="{{ url_for('home') }}" style="color:#fff">Retour</a>
+  </div>
+</div>
+<div class="container">
+  {% with messages = get_flashed_messages() %}
+    {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+  {% endwith %}
+
+  <div class="card">
+    <h2>Clients</h2>
+    <form class="inline" method="post" action="{{ url_for('admin_add_client') }}">
+      <label>Nom du client <input name="name" required placeholder="Nom de l'entreprise"></label>
+      <button class="btn secondary" type="submit">Ajouter le client</button>
+    </form>
+    <table class="admin">
+      <tr><th>Nom</th></tr>
+      {% for c in clients %}<tr><td>{{ c.name }}</td></tr>{% endfor %}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Utilisateurs</h2>
+    <form class="inline" method="post" action="{{ url_for('admin_add_user') }}">
+      <label>E-mail <input type="email" name="email" required></label>
+      <label>Nom complet <input name="full_name"></label>
+      <label>Mot de passe <input type="password" name="password" required></label>
+      <label>Rôle <select name="role"><option value="user" selected>Utilisateur</option><option value="admin">Administrateur</option></select></label>
+      <button class="btn secondary" type="submit">Créer l'utilisateur</button>
+    </form>
+    <table class="admin">
+      <tr><th>E-mail</th><th>Nom</th><th>Rôle</th></tr>
+      {% for u in users %}<tr><td>{{ u.email }}</td><td>{{ u.full_name }}</td><td>{{ u.role }}</td></tr>{% endfor %}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Accès aux clients</h2>
+    <form class="inline" method="post" action="{{ url_for('admin_add_member') }}">
+      <label>Utilisateur
+        <select name="user_id">{% for u in users %}<option value="{{ u.id }}">{{ u.email }}</option>{% endfor %}</select>
+      </label>
+      <label>Client
+        <select name="client_id">{% for c in clients %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select>
+      </label>
+      <button class="btn secondary" type="submit">Autoriser l'accès</button>
+    </form>
+    <table class="admin">
+      <tr><th>Utilisateur</th><th>Client</th><th></th></tr>
+      {% for m in memberships %}
+      <tr>
+        <td>{{ (users | selectattr('id', 'equalto', m.user_id) | first).email }}</td>
+        <td>{{ (clients | selectattr('id', 'equalto', m.client_id) | first).name }}</td>
+        <td>
+          <form method="post" action="{{ url_for('admin_delete_member', mid=m.id) }}">
+            <button class="linklike" type="submit">Retirer</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+{% endblock %}

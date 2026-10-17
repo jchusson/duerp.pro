@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Connexion{% endblock %}
+{% block body %}
+<div class="login-page">
+  <img class="login-logo" src="{{ url_for('static', filename='logo-jhc.png') }}" alt="Logo JHC">
+  <div class="login-box">
+    <h1>DUERP<span style="color: var(--red)">.pro</span></h1>
+    <p class="sub">Document Unique d'Évaluation des Risques Professionnels</p>
+    {% with messages = get_flashed_messages() %}
+      {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+    {% endwith %}
+    <form method="post">
+      <input type="email" name="email" placeholder="Adresse e-mail" required autofocus>
+      <input type="password" name="password" placeholder="Mot de passe" required>
+      <button type="submit" class="btn">Se connecter</button>
+    </form>
+  </div>
+  <p class="footer">JHC Consulting — duerp.pro</p>
+</div>
+{% endblock %}

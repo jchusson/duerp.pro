@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% macro crit(f, g, m) -%}
+  {%- set v = (f * g * m)|float -%}
+  <span class="crit {{ 'low' if v <= 3 else ('mid' if v < 16 else 'high') }}">{{ '%g'|format(v)|replace('.', ',') }}</span>
+{%- endmacro %}
+{% block title %}{{ client.name }}{% endblock %}
+{% block body %}
+<div class="topbar">
+  <div class="container">
+    <a class="brand" href="{{ url_for('home') }}"><img class="logo" src="{{ url_for('static', filename='logo-jhc.png') }}" alt="JHC">DUERP<span>.pro</span></a>
+    {% if clients|length > 1 %}
+    <form class="client-select" method="post" action="{{ url_for('select_client', client_id=client.id) }}">
+      <label style="color:#fff">Client :</label>
+      <select onchange="this.form.submit()">
+        {% for c in clients %}
+        <option value="{{ c.id }}" {% if c.id == client.id %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    {% else %}
+    <span style="margin-left:auto;color:#fff">{{ client.name }}</span>
+    {% endif %}
+    {% if g.user.role == 'admin' %}<a href="{{ url_for('admin') }}" style="color:#fff">Administration</a>{% endif %}
+    <a href="{{ url_for('logout') }}" style="color:#fff">Déconnexion</a>
+  </div>
+</div>
+
+<div class="hero">
+  <div class="container">
+    <div class="masthead">
+      <div>
+        <h1>{{ client.name }}</h1>
+        <p class="subtitle">Document Unique d'Évaluation des Risques Professionnels</p>
+      </div>
+    </div>
+    <div class="exportbar">
+      <a class="btn" href="{{ url_for('export_pdf') }}">Exporter PDF</a>
+      <a class="btn secondary" href="{{ url_for('export_excel') }}">Exporter Excel</a>
+      <a class="btn ghost" href="{{ url_for('export_action_pdf') }}">Plan d'action PDF</a>
+      <a class="btn ghost" href="{{ url_for('export_action_excel') }}">Plan d'action Excel</a>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  {% with messages = get_flashed_messages() %}
+    {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+  {% endwith %}
+
+  <div class="stats">
+    <div class="stat"><div class="num">{{ units|length }}</div><div class="lbl">Unités de travail</div></div>
+    <div class="stat"><div class="num">{{ count_risks }}</div><div class="lbl">Risques évalués</div></div>
+    <div class="stat"><div class="num">{{ count_high }}</div><div class="lbl">Risques ≥ 16 (prioritaires)</div></div>
+    <div class="stat"><div class="num">{{ actions|length }}</div><div class="lbl">Actions du plan d'action</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Unités de travail</h2>
+    <form class="inline" method="post" action="{{ url_for('add_work_unit') }}">
+      <label>Nouvelle unité de travail
+        <input type="text" name="name" placeholder="Ex. Redon - 3CS - Accueil" required>
+      </label>
+      <button class="btn secondary" type="submit">Ajouter</button>
+    </form>
+  </div>
+
+  {% for u in units %}
+  <div class="unit-card">
+    <div class="unit-title">
+      <h3>{{ u.name }}</h3>
+      <form method="post" action="{{ url_for('delete_work_unit', uid=u.id) }}" onsubmit="return confirm('Supprimer cette unité de travail et ses risques ?')">
+        <button class="linklike" type="submit">Supprimer</button>
+      </form>
+    </div>
+    <div class="unit-body">
+      <table class="risks">
+        <tr>
+          <th style="width:14%">Risque</th><th style="width:22%">Situation dangereuse</th>
+          <th>F</th><th>G</th><th style="width:22%">Mesures préventives existantes</th>
+          <th>M</th><th>FxGxM</th><th style="width:22%">Actions retenues</th><th></th>
+        </tr>
+        {% for r in u.risks %}
+        <tr>
+          <form method="post" action="{{ url_for('update_risk', rid=r.id) }}">
+          <td><input name="hazard" value="{{ r.hazard }}" style="width:100%"></td>
+          <td><input name="situation" value="{{ r.situation }}" style="width:100%"></td>
+          <td class="num">
+            <select name="frequency">{% for v in [1,2,3,4] %}<option {{ 'selected' if v==r.frequency }}>{{ v }}</option>{% endfor %}</select>
+          </td>
+          <td class="num">
+            <select name="severity">{% for v in [1,2,4,8] %}<option {{ 'selected' if v==r.severity }}>{{ v }}</option>{% endfor %}</select>
+          </td>
+          <td><input name="existing_measures" value="{{ r.existing_measures }}" style="width:100%"></td>
+          <td class="num">
+            <select name="mastery">{% for v in [0.5,1,2] %}<option value="{{ v }}" {{ 'selected' if v==r.mastery }}>{{ '%g'|format(v)|replace('.', ',') }}</option>{% endfor %}</select>
+          </td>
+          <td class="crit">{{ crit(r.frequency, r.severity, r.mastery) }}</td>
+          <td><input name="actions" value="{{ r.actions }}" style="width:100%"></td>
+          <td class="actions-bar">
+            <button class="btn small secondary" type="submit">Enregistrer</button>
+          </form>
+            <form method="post" action="{{ url_for('delete_risk', rid=r.id) }}"><button class="linklike" type="submit">Suppr.</button></form>
+          </td>
+        </tr>
+        {% endfor %}
+        <tr>
+          <form method="post" action="{{ url_for('add_risk') }}">
+            <input type="hidden" name="work_unit_id" value="{{ u.id }}">
+            <td><input name="hazard" placeholder="Risque" style="width:100%"></td>
+            <td><input name="situation" placeholder="Situation dangereuse" style="width:100%"></td>
+            <td class="num"><select name="frequency">{% for v in [1,2,3,4] %}<option>{{ v }}</option>{% endfor %}</select></td>
+            <td class="num"><select name="severity">{% for v in [1,2,4,8] %}<option>{{ v }}</option>{% endfor %}</select></td>
+            <td><input name="existing_measures" placeholder="Mesures existantes" style="width:100%"></td>
+            <td class="num"><select name="mastery">{% for v in [0.5,1,2] %}<option value="{{ v }}">{{ '%g'|format(v)|replace('.', ',') }}</option>{% endfor %}</select></td>
+            <td></td>
+            <td><input name="actions" placeholder="Actions retenues" style="width:100%"></td>
+            <td><button class="btn small" type="submit">Ajouter</button></td>
+          </form>
+        </tr>
+      </table>
+    </div>
+  </div>
+  {% endfor %}
+
+  <div class="card">
+    <h2>Plan d'action</h2>
+    <form class="inline" method="post" action="{{ url_for('add_action') }}">
+      <label>Unité de travail
+        <select name="work_unit_id"><option value=""></option>
+          {% for u in units %}<option value="{{ u.id }}">{{ u.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label style="flex:2">Action <input name="action" placeholder="Description de l'action" required style="min-width:240px"></label>
+      <label>Priorité <select name="priority"><option>Basse</option><option selected>Moyenne</option><option>Haute</option></select></label>
+      <label>Responsable <input name="responsible" placeholder="Nom"></label>
+      <label>Échéance <input name="due_date" type="date"></label>
+      <label>Statut <select name="status"><option selected>À faire</option><option>En cours</option><option>Terminée</option></select></label>
+      <label>Coût estimé <input name="cost" placeholder="Ex. 500 €"></label>
+      <button class="btn secondary" type="submit">Ajouter l'action</button>
+    </form>
+    <table class="admin">
+      <tr><th>Unité de travail</th><th>Action</th><th>Priorité</th><th>Responsable</th><th>Échéance</th><th>Statut</th><th>Coût</th><th></th></tr>
+      {% for a in actions %}
+      <tr>
+        <td>{{ a.work_unit or '' }}</td>
+        <td>{{ a.action }}</td>
+        <td>{{ a.priority }}</td>
+        <td>{{ a.responsible }}</td>
+        <td>{{ a.due_date }}</td>
+        <td>
+          <form method="post" action="{{ url_for('update_action', aid=a.id) }}" class="inline" style="gap:4px">
+            <select name="status" onchange="this.form.submit()">
+              <option {{ 'selected' if a.status == 'À faire' }}>À faire</option>
+              <option {{ 'selected' if a.status == 'En cours' }}>En cours</option>
+              <option {{ 'selected' if a.status == 'Terminée' }}>Terminée</option>
+            </select>
+          </form>
+        </td>
+        <td>{{ a.cost }}</td>
+        <td>
+          <form method="post" action="{{ url_for('delete_action', aid=a.id) }}"><button class="linklike" type="submit">Suppr.</button></form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" style="color:#6b7280">Aucune action enregistrée pour le moment.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+<p class="footer">JHC Consulting — duerp.pro — Cotation : Fréquence (1-4) × Gravité (1, 2, 4, 8) × Maîtrise (0,5 / 1 / 2)</p>
+{% endblock %}

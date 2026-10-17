@@ -1,0 +1,443 @@
+import io
+import os
+import sys
+
+from flask import (
+    Flask, abort, flash, g, redirect, render_template,
+    request, session, send_file, url_for,
+)
+from werkzeug.security import generate_password_hash
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import database
+import exports
+
+app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", os.urandom(24).hex())
+
+FREQ = [1, 2, 3, 4]
+SEV = [1, 2, 4, 8]
+MASTERY = [0.5, 1, 2]
+
+
+@app.before_request
+def before_request():
+    database.init_db()
+    g.user = None
+    user_id = session.get("user_id")
+    if user_id:
+        g.user = database.get_user(user_id)
+
+
+def login_required(f):
+    def wrapper(*args, **kwargs):
+        if not g.get("user"):
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    wrapper.__name__ = f.__name__
+    return wrapper
+
+
+def admin_required(f):
+    def wrapper(*args, **kwargs):
+        if not g.get("user") or g.user["role"] != "admin":
+            abort(403)
+        return f(*args, **kwargs)
+    wrapper.__name__ = f.__name__
+    return wrapper
+
+
+def current_client():
+    """Return the selected client (id in session) if the user may access it."""
+    user = g.get("user")
+    if not user:
+        return None
+    client_id = session.get("client_id")
+    clients = database.user_clients(user)
+    if not clients:
+        return None
+    if client_id:
+        for c in clients:
+            if c["id"] == client_id:
+                return c
+    session["client_id"] = clients[0]["id"]
+    return clients[0]
+
+
+# ---------------- Auth ----------------
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        user = database.verify_user(request.form.get("email", "").strip().lower(), request.form.get("password", ""))
+        if not user:
+            flash("Identifiants incorrects.", "error")
+        else:
+            session.clear()
+            session["user_id"] = user["id"]
+            return redirect(url_for("home"))
+    return render_template("login.html")
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+@app.route("/")
+@login_required
+def home():
+    client = current_client()
+    if not client:
+        return render_template("no_client.html")
+    conn = database.get_db()
+    units = [dict(u) for u in conn.execute(
+        "SELECT * FROM work_units WHERE client_id = ? ORDER BY position, id", (client["id"],)
+    ).fetchall()]
+    count_risks = 0
+    for u in units:
+        u["risks"] = conn.execute(
+            "SELECT * FROM risks WHERE work_unit_id = ? ORDER BY id", (u["id"],)
+        ).fetchall()
+        count_risks += len(u["risks"])
+    actions = conn.execute(
+        "SELECT a.*, w.name AS work_unit FROM action_items a "
+        "LEFT JOIN work_units w ON w.id = a.work_unit_id "
+        "WHERE a.client_id = ? ORDER BY a.id DESC", (client["id"],)
+    ).fetchall()
+    conn.close()
+    high = sum(1 for u in units for r in u["risks"]
+               if r["frequency"] * r["severity"] * r["mastery"] >= 16)
+    return render_template(
+        "home.html", client=client, units=units, actions=actions,
+        count_risks=count_risks, count_high=high,
+        clients=database.user_clients(g.user),
+    )
+
+
+@app.route("/client/select/<int:client_id>", methods=["POST"])
+@login_required
+def select_client(client_id):
+    if not database.user_has_client(g.user, client_id):
+        abort(403)
+    session["client_id"] = client_id
+    return redirect(url_for("home"))
+
+
+# ---------------- Unités de travail ----------------
+
+@app.route("/work-units/add", methods=["POST"])
+@login_required
+def add_work_unit():
+    client = current_client()
+    if not client:
+        abort(403)
+    name = request.form.get("name", "").strip()
+    if name:
+        conn = database.get_db()
+        conn.execute(
+            "INSERT INTO work_units (client_id, name, position) VALUES (?,?,?)",
+            (client["id"], name, request.form.get("position", 0) or 0),
+        )
+        conn.commit()
+        conn.close()
+    return redirect(url_for("home"))
+
+
+@app.route("/work-units/<int:uid>/delete", methods=["POST"])
+@login_required
+def delete_work_unit(uid):
+    client = current_client()
+    if not client:
+        abort(403)
+    conn = database.get_db()
+    conn.execute(
+        "DELETE FROM work_units WHERE id = ? AND client_id = ?", (uid, client["id"])
+    )
+    conn.commit()
+    conn.close()
+    return redirect(url_for("home"))
+
+
+# ---------------- Risques ----------------
+
+@app.route("/risks/add", methods=["POST"])
+@login_required
+def add_risk():
+    client = current_client()
+    if not client:
+        abort(403)
+    try:
+        work_unit_id = int(request.form.get("work_unit_id"))
+        frequency = int(request.form.get("frequency"))
+        severity = int(request.form.get("severity"))
+        mastery = float(request.form.get("mastery"))
+    except (TypeError, ValueError):
+        abort(400)
+    if frequency not in FREQ or severity not in SEV or mastery not in MASTERY:
+        abort(400)
+    conn = database.get_db()
+    check = conn.execute(
+        "SELECT id FROM work_units WHERE id = ? AND client_id = ?", (work_unit_id, client["id"])
+    ).fetchone()
+    if not check:
+        conn.close()
+        abort(403)
+    conn.execute(
+        "INSERT INTO risks (work_unit_id, hazard, situation, frequency, severity, existing_measures, mastery, actions) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (work_unit_id, request.form.get("hazard", "").strip(),
+         request.form.get("situation", "").strip(), frequency, severity,
+         request.form.get("existing_measures", "").strip(), mastery,
+         request.form.get("actions", "").strip()),
+    )
+    conn.commit()
+    conn.close()
+    return redirect(url_for("home"))
+
+
+@app.route("/risks/<int:rid>/update", methods=["POST"])
+@login_required
+def update_risk(rid):
+    client = current_client()
+    if not client:
+        abort(403)
+    try:
+        frequency = int(request.form.get("frequency"))
+        severity = int(request.form.get("severity"))
+        mastery = float(request.form.get("mastery"))
+    except (TypeError, ValueError):
+        abort(400)
+    if frequency not in FREQ or severity not in SEV or mastery not in MASTERY:
+        abort(400)
+    conn = database.get_db()
+    conn.execute(
+        "UPDATE risks SET hazard=?, situation=?, frequency=?, severity=?, existing_measures=?, mastery=?, actions=? "
+        "WHERE id=? AND work_unit_id IN (SELECT id FROM work_units WHERE client_id=?)",
+        (request.form.get("hazard", "").strip(), request.form.get("situation", "").strip(),
+         frequency, severity, request.form.get("existing_measures", "").strip(),
+         mastery, request.form.get("actions", "").strip(), rid, client["id"]),
+    )
+    conn.commit()
+    conn.close()
+    return redirect(url_for("home"))
+
+
+@app.route("/risks/<int:rid>/delete", methods=["POST"])
+@login_required
+def delete_risk(rid):
+    client = current_client()
+    if not client:
+        abort(403)
+    conn = database.get_db()
+    conn.execute(
+        "DELETE FROM risks WHERE id=? AND work_unit_id IN (SELECT id FROM work_units WHERE client_id=?)",
+        (rid, client["id"]),
+    )
+    conn.commit()
+    conn.close()
+    return redirect(url_for("home"))
+
+
+# ---------------- Plan d'action ----------------
+
+@app.route("/actions/add", methods=["POST"])
+@login_required
+def add_action():
+    client = current_client()
+    if not client:
+        abort(403)
+    action = request.form.get("action", "").strip()
+    if not action:
+        return redirect(url_for("home"))
+    work_unit_id = request.form.get("work_unit_id") or None
+    conn = database.get_db()
+    conn.execute(
+        "INSERT INTO action_items (client_id, work_unit_id, action, priority, responsible, due_date, status, cost) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        (client["id"], work_unit_id, action,
+         request.form.get("priority", "Moyenne"), request.form.get("responsible", "").strip(),
+         request.form.get("due_date", "").strip(), request.form.get("status", "À faire"),
+         request.form.get("cost", "").strip()),
+    )
+    conn.commit()
+    conn.close()
+    return redirect(url_for("home"))
+
+
+@app.route("/actions/<int:aid>/update", methods=["POST"])
+@login_required
+def update_action(aid):
+    client = current_client()
+    if not client:
+        abort(403)
+    conn = database.get_db()
+    conn.execute(
+        "UPDATE action_items SET status=? WHERE id=? AND client_id=?",
+        (request.form.get("status", "À faire"), aid, client["id"]),
+    )
+    conn.commit()
+    conn.close()
+    return redirect(url_for("home"))
+
+
+@app.route("/actions/<int:aid>/delete", methods=["POST"])
+@login_required
+def delete_action(aid):
+    client = current_client()
+    if not client:
+        abort(403)
+    conn = database.get_db()
+    conn.execute("DELETE FROM action_items WHERE id=? AND client_id=?", (aid, client["id"]))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("home"))
+
+
+# ---------------- Exports ----------------
+
+def _load_export_data():
+    client = current_client()
+    if not client:
+        abort(403)
+    conn = database.get_db()
+    units = [dict(u) for u in conn.execute(
+        "SELECT * FROM work_units WHERE client_id = ? ORDER BY position, id", (client["id"],)
+    ).fetchall()]
+    for u in units:
+        u["risks"] = [dict(r) for r in conn.execute(
+            "SELECT * FROM risks WHERE work_unit_id = ? ORDER BY id", (u["id"],)
+        ).fetchall()]
+    actions = [dict(a) for a in conn.execute(
+        "SELECT a.*, w.name AS work_unit FROM action_items a "
+        "LEFT JOIN work_units w ON w.id = a.work_unit_id "
+        "WHERE a.client_id = ? ORDER BY a.id", (client["id"],)
+    ).fetchall()]
+    conn.close()
+    return client, units, actions
+
+
+@app.route("/export/pdf")
+@login_required
+def export_pdf():
+    client, units, actions = _load_export_data()
+    buf = io.BytesIO()
+    exports.build_pdf(client, units, actions, buf)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name="DUERP_%s.pdf" % client["name"].replace(" ", "_"))
+
+
+@app.route("/export/excel")
+@login_required
+def export_excel():
+    client, units, actions = _load_export_data()
+    buf = io.BytesIO()
+    exports.build_excel(client, units, actions, buf)
+    buf.seek(0)
+    return send_file(
+        buf, as_attachment=True, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        download_name="DUERP_%s.xlsx" % client["name"].replace(" ", "_"))
+
+
+@app.route("/export/action-pdf")
+@login_required
+def export_action_pdf():
+    client, _units, actions = _load_export_data()
+    buf = io.BytesIO()
+    exports.build_action_pdf(client, actions, buf)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name="Plan_action_%s.pdf" % client["name"].replace(" ", "_"))
+
+
+@app.route("/export/action-excel")
+@login_required
+def export_action_excel():
+    client, _units, actions = _load_export_data()
+    buf = io.BytesIO()
+    exports.build_action_excel(client, actions, buf)
+    buf.seek(0)
+    return send_file(
+        buf, as_attachment=True, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        download_name="Plan_action_%s.xlsx" % client["name"].replace(" ", "_"))
+
+
+# ---------------- Administration ----------------
+
+@app.route("/admin")
+@login_required
+@admin_required
+def admin():
+    conn = database.get_db()
+    clients = conn.execute("SELECT * FROM clients ORDER BY name").fetchall()
+    users = conn.execute("SELECT * FROM users ORDER BY email").fetchall()
+    memberships = conn.execute("SELECT * FROM client_members").fetchall()
+    conn.close()
+    return render_template("admin.html", clients=clients, users=users, memberships=memberships)
+
+
+@app.route("/admin/clients/add", methods=["POST"])
+@login_required
+@admin_required
+def admin_add_client():
+    name = request.form.get("name", "").strip()
+    if name:
+        conn = database.get_db()
+        conn.execute("INSERT OR IGNORE INTO clients (name) VALUES (?)", (name,))
+        conn.commit()
+        conn.close()
+    return redirect(url_for("admin"))
+
+
+@app.route("/admin/users/add", methods=["POST"])
+@login_required
+@admin_required
+def admin_add_user():
+    email = request.form.get("email", "").strip().lower()
+    password = request.form.get("password", "")
+    role = request.form.get("role", "user")
+    if email and password and role in ("admin", "user"):
+        conn = database.get_db()
+        try:
+            conn.execute(
+                "INSERT INTO users (email, password_hash, full_name, role) VALUES (?,?,?,?)",
+                (email, generate_password_hash(password), request.form.get("full_name", "").strip(), role),
+            )
+            conn.commit()
+        except Exception:
+            flash("Cet email existe déjà.", "error")
+        conn.close()
+    return redirect(url_for("admin"))
+
+
+@app.route("/admin/members/add", methods=["POST"])
+@login_required
+@admin_required
+def admin_add_member():
+    try:
+        user_id = int(request.form.get("user_id"))
+        client_id = int(request.form.get("client_id"))
+    except (TypeError, ValueError):
+        abort(400)
+    conn = database.get_db()
+    conn.execute("INSERT OR IGNORE INTO client_members (client_id, user_id) VALUES (?,?)", (client_id, user_id))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("admin"))
+
+
+@app.route("/admin/members/<int:mid>/delete", methods=["POST"])
+@login_required
+@admin_required
+def admin_delete_member(mid):
+    conn = database.get_db()
+    conn.execute("DELETE FROM client_members WHERE id = ?", (mid,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("admin"))
+
+
+if __name__ == "__main__":
+    database.init_db()
+    database.create_admin()
+    app.run(debug=True, host="127.0.0.1", port=int(os.environ.get("PORT", 5000)))
