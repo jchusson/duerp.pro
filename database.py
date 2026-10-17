@@ -66,7 +66,9 @@ CREATE TABLE IF NOT EXISTS measures (
 CREATE TABLE IF NOT EXISTS actions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     risk_id INTEGER NOT NULL REFERENCES risks(id) ON DELETE CASCADE,
-    text TEXT NOT NULL DEFAULT ''                -- action de prévention
+    text TEXT NOT NULL DEFAULT '',               -- action de prévention
+    actor TEXT NOT NULL DEFAULT '',              -- acteur qui réalisera l'action
+    due_date TEXT NOT NULL DEFAULT ''            -- date envisagée de réalisation
 );
 
 CREATE TABLE IF NOT EXISTS action_items (

@@ -244,9 +244,23 @@ def duplicate_work_unit(uid):
     if not src:
         conn.close()
         abort(403)
+    import re as _re
+    base_name = _re.sub(r"\s*\(copie(\s*\d+)?\)$", "", src["name"]).strip()
+    if not conn.execute(
+        "SELECT id FROM work_units WHERE client_id=? AND name=?",
+        (client["id"], base_name + " (copie)"),
+    ).fetchone():
+        new_name = base_name + " (copie)"
+    else:
+        i = 2
+        while conn.execute(
+            "SELECT id FROM work_units WHERE client_id=? AND name=?",
+            (client["id"], "%s (copie %d)" % (base_name, i))).fetchone():
+            i += 1
+        new_name = "%s (copie %d)" % (base_name, i)
     cur = conn.execute(
         "INSERT INTO work_units (client_id, name, position) VALUES (?,?,?)",
-        (client["id"], src["name"] + " (copie)", src["position"]),
+        (client["id"], new_name, src["position"]),
     )
     new_uid = cur.lastrowid
     risks = conn.execute("SELECT * FROM risks WHERE work_unit_id = ?", (uid,)).fetchall()
@@ -366,6 +380,46 @@ def update_risk(rid):
     return redirect(url_for("home"))
 
 
+@app.route("/risks/<int:rid>/duplicate", methods=["POST"])
+@login_required
+def duplicate_risk(rid):
+    """Duplique une situation dangereuse vers une ou plusieurs unités de travail."""
+    client = current_client()
+    if not client:
+        abort(403)
+    target_ids = [int(t) for t in request.form.getlist("targets[]") if t.strip().isdigit()]
+    conn = database.get_db()
+    src = conn.execute(
+        "SELECT * FROM risks WHERE id=? AND work_unit_id IN "
+        "(SELECT id FROM work_units WHERE client_id=?)", (rid, client["id"])
+    ).fetchone()
+    if src:
+        measures = conn.execute("SELECT * FROM measures WHERE risk_id=?", (rid,)).fetchall()
+        actions = conn.execute("SELECT * FROM actions WHERE risk_id=?", (rid,)).fetchall()
+        for tid in target_ids:
+            check = conn.execute(
+                "SELECT id FROM work_units WHERE id=? AND client_id=?", (tid, client["id"])
+            ).fetchone()
+            if not check:
+                continue
+            cur = conn.execute(
+                "INSERT INTO risks (work_unit_id, hazard, situation, frequency, severity, mastery) "
+                "VALUES (?,?,?,?,?,?)",
+                (tid, src["hazard"], src["situation"], src["frequency"], src["severity"], src["mastery"]),
+            )
+            new_rid = cur.lastrowid
+            for m in measures:
+                conn.execute("INSERT INTO measures (risk_id, text) VALUES (?,?)", (new_rid, m["text"]))
+            for a in actions:
+                conn.execute(
+                    "INSERT INTO actions (risk_id, text, actor, due_date) VALUES (?,?,?,?)",
+                    (new_rid, a["text"], a["actor"], a["due_date"]),
+                )
+        conn.commit()
+    conn.close()
+    return redirect(url_for("home"))
+
+
 @app.route("/risks/<int:rid>/delete", methods=["POST"])
 @login_required
 def delete_risk(rid):
@@ -409,7 +463,15 @@ def _add_line(rid, table):
         "(SELECT id FROM work_units WHERE client_id=?)", (rid, client["id"])
     ).fetchone()
     if row:
-        conn.execute("INSERT INTO %s (risk_id, text) VALUES (?,?)" % table, (rid, text))
+        if table == "actions":
+            conn.execute(
+                "INSERT INTO actions (risk_id, text, actor, due_date) VALUES (?,?,?,?)",
+                (rid, text,
+                 request.form.get("actor", "").strip(),
+                 request.form.get("due_date", "").strip()),
+            )
+        else:
+            conn.execute("INSERT INTO measures (risk_id, text) VALUES (?,?)", (rid, text))
         conn.commit()
     conn.close()
     return redirect(url_for("home"))
@@ -439,7 +501,14 @@ def _update_line(line_id, table):
         (line_id, client["id"]),
     ).fetchone()
     if row:
-        conn.execute("UPDATE %s SET text = ? WHERE id = ?" % table, (text, line_id))
+        if table == "actions":
+            conn.execute(
+                "UPDATE actions SET text = ?, actor = ?, due_date = ? WHERE id = ?",
+                (text, request.form.get("actor", "").strip(),
+                 request.form.get("due_date", "").strip(), line_id),
+            )
+        else:
+            conn.execute("UPDATE measures SET text = ? WHERE id = ?", (text, line_id))
         conn.commit()
     conn.close()
     return redirect(url_for("home"))

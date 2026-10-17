@@ -214,7 +214,16 @@ def build_pdf(client, units, actions, buffer):
             crit = round(r["frequency"] * r["severity"] * r["mastery"], 1)
             cell_style.append(("BACKGROUND", (6, idx), (6, idx), risk_color(crit)))
             measures_txt = "<br/>".join("&#8226; " + _esc(m["text"]) for m in r["measures"])
-            actions_txt = "<br/>".join("&#8226; " + _esc(a["text"]) for a in r["actions"])
+            def _action_line(a):
+                meta = []
+                if a.get("actor"):
+                    meta.append(_esc(a["actor"]))
+                if a.get("due_date"):
+                    meta.append(_esc(a["due_date"]))
+                if meta:
+                    return "&#8226; %s <font size=6 color=#78716c>(%s)</font>" % (_esc(a["text"]), " — ".join(meta))
+                return "&#8226; " + _esc(a["text"])
+            actions_txt = "<br/>".join(_action_line(a) for a in r["actions"])
             rows.append([
                 Paragraph(r["hazard"] or "", styles["cell"]),
                 Paragraph(r["situation"] or "", styles["cell"]),
@@ -349,7 +358,7 @@ def build_excel(client, units, actions, buffer):
             crit = round(r["frequency"] * r["severity"] * r["mastery"], 1)
             ws.append([u["name"], r["hazard"], r["situation"], r["frequency"], r["severity"],
                        "\n".join(m["text"] for m in r["measures"]), r["mastery"], crit,
-                       "\n".join(a["text"] for a in r["actions"])])
+                       "\n".join(a["text"] + ((" (%s)" % " — ".join(filter(None, [a["actor"], a["due_date"]]))) if (a["actor"] or a["due_date"]) else "") for a in r["actions"])])
             row = ws.max_row
             color = "2ECC71" if crit <= 3 else ("F39C12" if crit < 16 else "E74C3C")
             ws.cell(row=row, column=8).fill = PatternFill("solid", fgColor=color)
