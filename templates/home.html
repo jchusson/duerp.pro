@@ -11,6 +11,7 @@
     {% if clients|length > 1 %}
     <form class="client-select" method="post" action="{{ url_for('select_client', client_id=client.id) }}">
       <label style="color:#fff">Client :</label>
+      {% if client.logo_path %}<img src="{{ url_for('uploaded_file', filename=client.logo_path.replace('\\','/').split('/')[-1]) }}" alt="" style="height:24px;vertical-align:middle;background:#fff;border-radius:4px;padding:1px">{% endif %}
       <select onchange="this.form.submit()">
         {% for c in clients %}
         <option value="{{ c.id }}" {% if c.id == client.id %}selected{% endif %}>{{ c.name }}</option>
@@ -18,7 +19,10 @@
       </select>
     </form>
     {% else %}
-    <span style="margin-left:auto;color:#fff">{{ client.name }}</span>
+    <span style="margin-left:auto;color:#fff;display:inline-flex;align-items:center;gap:8px">
+      {% if client.logo_path %}<img src="{{ url_for('uploaded_file', filename=client.logo_path.replace('\\','/').split('/')[-1]) }}" alt="" style="height:24px;vertical-align:middle;background:#fff;border-radius:4px;padding:1px">{% endif %}
+      {{ client.name }}
+    </span>
     {% endif %}
     {% if g.user.role == 'admin' %}<a href="{{ url_for('admin') }}" style="color:#fff">Administration</a>{% endif %}
     <a href="{{ url_for('logout') }}" style="color:#fff">Déconnexion</a>
@@ -28,9 +32,12 @@
 <div class="hero">
   <div class="container">
     <div class="masthead">
-      <div>
-        <h1>{{ client.name }}</h1>
-        <p class="subtitle">Unités de travail</p>
+      <div style="display:flex;align-items:center;gap:14px">
+        {% if client.logo_path %}<img src="{{ url_for('uploaded_file', filename=client.logo_path.replace('\\','/').split('/')[-1]) }}" alt="Logo {{ client.name }}" style="height:48px">{% endif %}
+        <div>
+          <h1>{{ client.name }}</h1>
+          <p class="subtitle">Unités de travail</p>
+        </div>
       </div>
     </div>
     <div class="exportbar">
@@ -393,15 +400,19 @@ function openDupModal(rid, currentUid) {
   modal.classList.add('open');
 }
 
-// --- Menu de choix d'un risque (s'ouvre au clic, flotte au-dessus de tout) ---
+// --- Menu de choix d'un risque (filtre en direct, flotte au-dessus de tout) ---
+function stripAccents(s) { return (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
+const CATALOG_NORM = CATALOG.map(item => [item[0], stripAccents(item[0]), item[1]]);
+
 var openHazardMenu = null;
-function closeHazardMenu() { if (openHazardMenu) { openHazardMenu.remove(); openHazardMenu = null; } }
-document.addEventListener('click', function(e) {
-  if (openHazardMenu && !openHazardMenu.contains(e.target)) closeHazardMenu();
-  const inp = e.target.closest ? e.target.closest('.hazard-input') : null;
-  if (!inp) return;
-  e.stopPropagation();
-  if (openHazardMenu) { closeHazardMenu(); return; }
+var hazardInput = null;
+function closeHazardMenu() {
+  if (openHazardMenu) { openHazardMenu.remove(); openHazardMenu = null; }
+  hazardInput = null;
+}
+function buildHazardMenu() {
+  if (openHazardMenu) openHazardMenu.remove();
+  const inp = hazardInput;
   const menu = document.createElement('div');
   menu.className = 'hazard-menu';
   const rect = inp.getBoundingClientRect();
@@ -411,10 +422,14 @@ document.addEventListener('click', function(e) {
   menu.style.cssText = 'position:absolute;z-index:9999;background:#fff;border:1px solid #D4D4C4;' +
     'border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.15);max-height:280px;overflow:auto;' +
     'width:340px;left:' + Math.max(8, Math.min(rect.left + window.scrollX, document.documentElement.scrollWidth - 350)) + 'px;top:' + top + 'px';
-  CATALOG.forEach(function(item) {
+  const query = stripAccents(inp.value.trim());
+  let shown = 0;
+  CATALOG_NORM.forEach(function(item) {
+    if (query && item[1].indexOf(query) === -1) return;
+    shown++;
     const opt = document.createElement('div');
     opt.textContent = item[0];
-    opt.title = item[1];
+    opt.title = item[2];
     opt.style.cssText = 'padding:6px 10px;cursor:pointer;font-size:0.82rem;white-space:nowrap';
     opt.onmouseenter = () => opt.style.background = '#F5F0E8';
     opt.onmouseleave = () => opt.style.background = '#fff';
@@ -422,11 +437,23 @@ document.addEventListener('click', function(e) {
     menu.appendChild(opt);
   });
   const hint = document.createElement('div');
-  hint.textContent = 'Ou saisissez un libellé libre dans le champ';
+  hint.textContent = shown ? (shown + ' risque(s) — ou poursuivez la saisie libre') : 'Aucun risque prédéfini correspondant — saisie libre possible';
   hint.style.cssText = 'padding:6px 10px;font-size:0.75rem;color:#9ca3af;border-top:1px solid #D4D4C4;position:sticky;bottom:0;background:#fff';
   menu.appendChild(hint);
   document.body.appendChild(menu);
   openHazardMenu = menu;
+}
+document.addEventListener('click', function(e) {
+  if (openHazardMenu && !openHazardMenu.contains(e.target)) closeHazardMenu();
+  const inp = e.target.closest ? e.target.closest('.hazard-input') : null;
+  if (!inp) return;
+  e.stopPropagation();
+  if (hazardInput === inp) { closeHazardMenu(); return; }
+  hazardInput = inp;
+  buildHazardMenu();
+});
+document.addEventListener('input', function(e) {
+  if (hazardInput && e.target === hazardInput) buildHazardMenu();
 });
 document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeHazardMenu(); });
 </script>
