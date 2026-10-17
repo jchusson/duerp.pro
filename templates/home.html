@@ -347,37 +347,53 @@ function closeDupModal() { dupModal.classList.remove('open'); }
 dupModal.addEventListener('click', function(e) { if (e.target === dupModal) closeDupModal(); });
 
 // Menu de choix d'un risque : liste déroulante personnalisée, s'ouvre au clic
-// même si le champ contient déjà une valeur (contrairement au datalist natif).
+// même si le champ contient déjà une valeur. Positionnée en « fixed » pour
+// flotter au-dessus du tableau sans être rognée par les cellules.
+var openHazardMenu = null;
+function closeHazardMenu() {
+  if (openHazardMenu) { openHazardMenu.remove(); openHazardMenu = null; }
+}
 document.addEventListener('click', function(e) {
-  document.querySelectorAll('.hazard-menu').forEach(function(m) {
-    if (!m.contains(e.target) && e.target !== m.parentElement.querySelector('.hazard-input')) m.remove();
-  });
+  if (openHazardMenu && !openHazardMenu.contains(e.target)) closeHazardMenu();
   const inp = e.target.closest ? e.target.closest('.hazard-input') : null;
   if (!inp) return;
-  const old = inp.parentElement.querySelector('.hazard-menu');
-  if (old) { old.remove(); return; }
+  if (openHazardMenu && openHazardMenu.dataset.for === inp.name + '-' + inp.form.getAttribute('action')) {
+    closeHazardMenu(); return;
+  }
+  closeHazardMenu();
   const menu = document.createElement('div');
   menu.className = 'hazard-menu';
-  menu.style.cssText = 'position:absolute;z-index:50;background:#fff;border:1px solid #D4D4C4;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.15);max-height:220px;overflow:auto;min-width:260px;left:0;top:' + (inp.offsetTop + inp.offsetHeight) + 'px';
-  const cur = inp.value.trim();
+  menu.dataset.for = inp.name + '-' + inp.form.getAttribute('action');
+  const rect = inp.getBoundingClientRect();
+  let top = rect.bottom + window.scrollY + 2;
+  const menuMaxH = 260;
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const height = Math.min(menuMaxH, CATALOG.length * 30 + 30);
+  if (spaceBelow < 120 && rect.top > height) top = rect.top + window.scrollY - height - 2;
+  menu.style.cssText = 'position:absolute;z-index:9999;background:#fff;border:1px solid #D4D4C4;' +
+    'border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.15);max-height:' + menuMaxH + 'px;overflow:auto;' +
+    'min-width:280px;width:340px;left:' + Math.min(rect.left + window.scrollX, document.documentElement.scrollWidth - 350) + 'px;top:' + top + 'px';
+  menu.addEventListener('click', function(ev) { ev.stopPropagation(); });
   CATALOG.forEach(function(item) {
     const label = item[0];
     const desc = item[1];
     const opt = document.createElement('div');
     opt.textContent = label;
     opt.title = desc;
-    opt.style.cssText = 'padding:6px 10px;cursor:pointer;font-size:0.82rem';
+    opt.style.cssText = 'padding:6px 10px;cursor:pointer;font-size:0.82rem;white-space:nowrap';
     opt.onmouseenter = function() { opt.style.background = '#F5F0E8'; };
     opt.onmouseleave = function() { opt.style.background = '#fff'; };
-    opt.onclick = function() { inp.value = label; menu.remove(); inp.dispatchEvent(new Event('input')); };
+    opt.onclick = function() { inp.value = label; closeHazardMenu(); };
     menu.appendChild(opt);
   });
-  const custom = document.createElement('div');
-  custom.textContent = cur ? '« ' + cur + ' » (libellé libre actuel)' : 'Saisir un libellé libre dans le champ';
-  custom.style.cssText = 'padding:6px 10px;font-size:0.75rem;color:#9ca3af;border-top:1px solid #D4D4C4';
-  menu.appendChild(custom);
-  inp.parentElement.appendChild(menu);
+  const hint = document.createElement('div');
+  hint.textContent = 'Ou saisissez un libellé libre dans le champ';
+  hint.style.cssText = 'padding:6px 10px;font-size:0.75rem;color:#9ca3af;border-top:1px solid #D4D4C4;position:sticky;bottom:0;background:#fff';
+  menu.appendChild(hint);
+  document.body.appendChild(menu);
+  openHazardMenu = menu;
 });
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeHazardMenu(); });
 </script>
 <p class="footer">JHC Consulting — duerp.pro — Cotation : Fréquence (1-4) × Gravité (1, 2, 4, 8) × Maîtrise (0,5 / 1 / 2)</p>
 {% endblock %}
