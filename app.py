@@ -93,6 +93,9 @@ def home():
         if g.user["role"] == "admin":
             return redirect(url_for("admin"))
         return render_template("no_client.html")
+    q = request.args.get("q", "").strip().lower()
+    crit_level = request.args.get("crit", "")
+    unit_id = request.args.get("unit", "")
     conn = database.get_db()
     units = [dict(u) for u in conn.execute(
         "SELECT * FROM work_units WHERE client_id = ? ORDER BY position, id", (client["id"],)
@@ -109,11 +112,46 @@ def home():
         "WHERE a.client_id = ? ORDER BY a.id DESC", (client["id"],)
     ).fetchall()
     conn.close()
-    high = sum(1 for u in units for r in u["risks"]
-               if r["frequency"] * r["severity"] * r["mastery"] >= 16)
+
+    # --- filtres : recherche plein texte + niveau de criticité + unité ---
+    def crit_value(r):
+        return r["frequency"] * r["severity"] * r["mastery"]
+
+    units_all = [dict(u, risks=list(u["risks"])) for u in units]
+    if q or crit_level or unit_id:
+        try:
+            unit_id_int = int(unit_id) if unit_id else None
+        except ValueError:
+            unit_id_int = None
+        for u in units_all:
+            if unit_id_int and u["id"] != unit_id_int:
+                u["risks"] = []
+                continue
+            kept = []
+            for r in u["risks"]:
+                if q:
+                    haystack = " ".join([u["name"], r["hazard"], r["situation"],
+                                         r["existing_measures"], r["actions"]]).lower()
+                    if q not in haystack:
+                        continue
+                if crit_level == "low" and crit_value(r) > 3:
+                    continue
+                if crit_level == "mid" and not (4 <= crit_value(r) <= 15):
+                    continue
+                if crit_level == "high" and crit_value(r) < 16:
+                    continue
+                kept.append(r)
+            u["risks"] = kept
+    total_shown = sum(len(u["risks"]) for u in units_all)
+    high = sum(1 for u in units for r in u["risks"] if crit_value(r) >= 16)
+
+    from risk_catalog import RISQUE_CATALOG
     return render_template(
         "home.html", client=client, units=units, actions=actions,
         count_risks=count_risks, count_high=high,
+        units_shown=units_all, total_shown=total_shown,
+        filters_active=bool(q or crit_level or unit_id),
+        catalog=RISQUE_CATALOG,
         clients=database.user_clients(g.user),
     )
 

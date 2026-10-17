@@ -30,7 +30,7 @@
     <div class="masthead">
       <div>
         <h1>{{ client.name }}</h1>
-        <p class="subtitle">Document Unique d'Évaluation des Risques Professionnels</p>
+        <p class="subtitle">Unités de travail</p>
       </div>
     </div>
     <div class="exportbar">
@@ -54,17 +54,79 @@
     <div class="stat"><div class="num">{{ actions|length }}</div><div class="lbl">Actions du plan d'action</div></div>
   </div>
 
+  <!-- Aide à la cotation -->
+  <button class="coting-help-toggle" onclick="var el=document.getElementById('cotingHelp');el.classList.toggle('open');this.textContent=el.classList.contains('open')?'Masquer l\'aide à la cotation':'Aide à la cotation'">Aide à la cotation</button>
+  <div class="coting-help" id="cotingHelp">
+    <h3>Grille de cotation des risques</h3>
+    <div class="grid">
+      <div class="col">
+        <table>
+          <tr><th colspan="2">Fréquence</th></tr>
+          <tr><td>1</td><td>Faible : entre 0 et 10% du nombre d'heures travaillées</td></tr>
+          <tr><td>2</td><td>Ponctuelle : entre 10 et 40% du nombre d'heures travaillées</td></tr>
+          <tr><td>3</td><td>Moyenne : entre 40 et 70% du nombre d'heures travaillées</td></tr>
+          <tr><td>4</td><td>Élevée : entre 70 et 100% du nombre d'heures travaillées</td></tr>
+        </table>
+      </div>
+      <div class="col">
+        <table>
+          <tr><th colspan="2">Gravité</th></tr>
+          <tr><td>1</td><td>Mineure : AT sans arrêt de travail</td></tr>
+          <tr><td>2</td><td>Significative : AT avec arrêt de travail sans séquelles</td></tr>
+          <tr><td>4</td><td>Critique : AT entraînant un arrêt de travail avec séquelles</td></tr>
+          <tr><td>8</td><td>Vitale : AT pouvant entraîner une invalidité totale ou le décès</td></tr>
+        </table>
+      </div>
+      <div class="col">
+        <table>
+          <tr><th colspan="2">Maîtrise</th></tr>
+          <tr><td>0,5</td><td>Bonne : personne protégée (protections individuelles, collectives,...)</td></tr>
+          <tr><td>1</td><td>Moyenne : risque signalé (informations, consignes, pas d'AT antérieur,...)</td></tr>
+          <tr><td>2</td><td>Aucune : aucune maîtrise</td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="levels">
+      <strong>FxGxM :</strong>
+      <span><span class="swatch" style="background:var(--green)"></span> ≤ 3 : aucune action complémentaire ne s'impose</span>
+      <span><span class="swatch" style="background:var(--orange)"></span> 4 à 15 : une action, au moins en terme de communication et formalisation d'une consigne</span>
+      <span><span class="swatch" style="background:var(--red-cell)"></span> ≥ 16 : action palliative rapide + solution durable</span>
+    </div>
+  </div>
+
+  <!-- Filtres -->
+  <form class="filterbar" method="get" id="filterForm">
+    <input type="text" name="q" value="{{ request.args.get('q','') }}"
+           placeholder="Rechercher une unité de travail ou situation dangereuse..." id="searchInput">
+    <select name="crit" id="critFilter" onchange="this.form.submit()">
+      <option value="">Niveau FxGxM : tous</option>
+      <option value="low" {{ 'selected' if request.args.get('crit')=='low' }}>≤ 3 (vert)</option>
+      <option value="mid" {{ 'selected' if request.args.get('crit')=='mid' }}>4 à 15 (orange)</option>
+      <option value="high" {{ 'selected' if request.args.get('crit')=='high' }}>≥ 16 (rouge)</option>
+    </select>
+    <select name="unit" id="unitFilter" onchange="this.form.submit()">
+      <option value="">Unité de travail : toutes</option>
+      {% for u in units %}
+      <option value="{{ u.id }}" {{ 'selected' if request.args.get('unit')|string == u.id|string }}>{{ u.name }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn secondary small" type="submit">Filtres</button>
+    {% if filters_active %}<span class="active-badge">{{ total_shown }} risque(s) affiché(s)</span>
+    <a href="{{ url_for('home') }}" class="linklike" style="font-size:0.8rem">Réinitialiser</a>{% endif %}
+  </form>
+
   <div class="card">
     <h2>Unités de travail</h2>
     <form class="inline" method="post" action="{{ url_for('add_work_unit') }}">
       <label>Nouvelle unité de travail
         <input type="text" name="name" placeholder="Ex. Redon - 3CS - Accueil" required>
       </label>
-      <button class="btn secondary" type="submit">Ajouter</button>
+      <button class="btn secondary" type="submit">Créer une UT</button>
     </form>
   </div>
 
-  {% for u in units %}
+  {% set shown_units = units_shown if not filters_active else (units_shown | selectattr('risks') | list) %}
+  {% for u in shown_units %}
   <div class="unit-card">
     <div class="unit-title">
       <h3>{{ u.name }}</h3>
@@ -82,7 +144,7 @@
         {% for r in u.risks %}
         <tr>
           <form method="post" action="{{ url_for('update_risk', rid=r.id) }}">
-          <td><input name="hazard" value="{{ r.hazard }}" style="width:100%"></td>
+          <td><input name="hazard" value="{{ r.hazard }}" list="riskCatalog" autocomplete="off" style="width:100%"></td>
           <td><input name="situation" value="{{ r.situation }}" style="width:100%"></td>
           <td class="num">
             <select name="frequency">{% for v in [1,2,3,4] %}<option {{ 'selected' if v==r.frequency }}>{{ v }}</option>{% endfor %}</select>
@@ -106,7 +168,7 @@
         <tr>
           <form method="post" action="{{ url_for('add_risk') }}">
             <input type="hidden" name="work_unit_id" value="{{ u.id }}">
-            <td><input name="hazard" placeholder="Risque" style="width:100%"></td>
+            <td class="datalist-wrap"><input name="hazard" list="riskCatalog" autocomplete="off" placeholder="Risque prédéfini ou libre" style="width:100%"></td>
             <td><input name="situation" placeholder="Situation dangereuse" style="width:100%"></td>
             <td class="num"><select name="frequency">{% for v in [1,2,3,4] %}<option>{{ v }}</option>{% endfor %}</select></td>
             <td class="num"><select name="severity">{% for v in [1,2,4,8] %}<option>{{ v }}</option>{% endfor %}</select></td>
@@ -120,6 +182,8 @@
       </table>
     </div>
   </div>
+  {% else %}
+  <div class="card" style="color:#6b7280">{% if filters_active %}Aucune ligne ne correspond aux filtres.{% else %}Aucune unité de travail créée pour le moment.{% endif %}</div>
   {% endfor %}
 
   <div class="card">
@@ -167,5 +231,11 @@
     </table>
   </div>
 </div>
+
+<datalist id="riskCatalog">
+  {% for label, desc in catalog %}
+  <option value="{{ label }}"></option>
+  {% endfor %}
+</datalist>
 <p class="footer">JHC Consulting — duerp.pro — Cotation : Fréquence (1-4) × Gravité (1, 2, 4, 8) × Maîtrise (0,5 / 1 / 2)</p>
 {% endblock %}
