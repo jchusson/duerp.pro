@@ -139,6 +139,8 @@ table.admin th { color: var(--blue); background: var(--cream); }
 .datalist-wrap { position: relative; }
 input[list] { width: 100%; }
 /* --- Lignes mesures / actions --- */
+table.risks.compact td.cell-detail { font-size: 0.75rem; color: #6b7280; line-height: 1.4; }
+table.risks.compact td.cell-detail em { color: #9ca3af; font-style: normal; }
 tr.subrow td { background: var(--cream); font-size: 0.78rem; }
 .line-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 2px 0; }
 .line-label { color: var(--blue); font-weight: 600; min-width: 150px; }

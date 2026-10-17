@@ -3,7 +3,7 @@ import os
 import sys
 
 from flask import (
-    Flask, abort, flash, g, redirect, render_template,
+    Flask, abort, flash, g, jsonify, redirect, render_template,
     request, session, send_file, url_for,
 )
 from werkzeug.security import generate_password_hash
@@ -297,6 +297,25 @@ def delete_work_unit(uid):
 
 # ---------------- Risques ----------------
 
+def _risk_state(conn, rid):
+    """État complet d'une situation dangereuse (pour les réponses JSON)."""
+    r = conn.execute("SELECT * FROM risks WHERE id=?", (rid,)).fetchone()
+    if not r:
+        return None
+    return {
+        "id": r["id"], "hazard": r["hazard"], "situation": r["situation"],
+        "frequency": r["frequency"], "severity": r["severity"], "mastery": r["mastery"],
+        "measures": [dict(m) for m in conn.execute(
+            "SELECT id, text FROM measures WHERE risk_id=? ORDER BY id", (rid,)).fetchall()],
+        "actions": [dict(x) for x in conn.execute(
+            "SELECT id, text, actor, due_date FROM actions WHERE risk_id=? ORDER BY id", (rid,)).fetchall()],
+    }
+
+
+def _is_ajax():
+    return request.headers.get("X-Requested-With") == "fetch"
+
+
 def _valid_risk_params():
     try:
         frequency = int(request.form.get("frequency"))
@@ -376,6 +395,10 @@ def update_risk(rid):
             if a.strip():
                 conn.execute("INSERT INTO actions (risk_id, text) VALUES (?,?)", (rid, a.strip()))
     conn.commit()
+    if _is_ajax():
+        state = _risk_state(conn, rid)
+        conn.close()
+        return jsonify(state)
     conn.close()
     return redirect(url_for("home"))
 
@@ -456,6 +479,8 @@ def _add_line(rid, table):
         abort(403)
     text = request.form.get("text", "").strip()
     if not text:
+        if _is_ajax():
+            return jsonify(error="texte vide"), 400
         return redirect(url_for("home"))
     conn = database.get_db()
     row = conn.execute(
@@ -473,6 +498,12 @@ def _add_line(rid, table):
         else:
             conn.execute("INSERT INTO measures (risk_id, text) VALUES (?,?)", (rid, text))
         conn.commit()
+    if _is_ajax():
+        state = _risk_state(conn, rid) if row else None
+        conn.close()
+        if not state:
+            return jsonify(error="introuvable"), 404
+        return jsonify(state)
     conn.close()
     return redirect(url_for("home"))
 
@@ -496,7 +527,7 @@ def _update_line(line_id, table):
     text = request.form.get("text", "").strip()
     conn = database.get_db()
     row = conn.execute(
-        "SELECT l.id FROM %s l JOIN risks r ON r.id = l.risk_id "
+        "SELECT l.id, l.risk_id FROM %s l JOIN risks r ON r.id = l.risk_id "
         "JOIN work_units w ON w.id = r.work_unit_id WHERE l.id = ? AND w.client_id = ?" % table,
         (line_id, client["id"]),
     ).fetchone()
@@ -510,6 +541,12 @@ def _update_line(line_id, table):
         else:
             conn.execute("UPDATE measures SET text = ? WHERE id = ?", (text, line_id))
         conn.commit()
+    if _is_ajax():
+        state = _risk_state(conn, row["risk_id"]) if row else None
+        conn.close()
+        if not state:
+            return jsonify(error="introuvable"), 404
+        return jsonify(state)
     conn.close()
     return redirect(url_for("home"))
 
@@ -531,13 +568,21 @@ def _delete_line(line_id, table):
     if not client:
         abort(403)
     conn = database.get_db()
-    conn.execute(
-        "DELETE FROM %s WHERE id = ? AND risk_id IN "
-        "(SELECT id FROM risks WHERE work_unit_id IN "
-        "(SELECT id FROM work_units WHERE client_id = ?))" % table,
+    row = conn.execute(
+        "SELECT l.risk_id FROM %s l JOIN risks r ON r.id = l.risk_id "
+        "JOIN work_units w ON w.id = r.work_unit_id WHERE l.id = ? AND w.client_id = ?" % table,
         (line_id, client["id"]),
+    ).fetchone()
+    conn.execute(
+        "DELETE FROM %s WHERE id = ?" % table, (line_id,)
     )
     conn.commit()
+    if _is_ajax():
+        state = _risk_state(conn, row["risk_id"]) if row else None
+        conn.close()
+        if not state:
+            return jsonify(error="introuvable"), 404
+        return jsonify(state)
     conn.close()
     return redirect(url_for("home"))
 
