@@ -163,22 +163,26 @@
         {% for r in u.risks %}
         <tr>
           <td>{{ r.hazard }}</td>
-          <td>{{ r.situation }}</td>
+          <td>
+            <div>{{ r.situation }}</div>
+            {% if r.measures %}
+            <div class="inline-detail">
+              {% for m in r.measures %}<div>🛡 {{ m.text }}</div>{% endfor %}
+            </div>
+            {% endif %}
+            {% if r.actions %}
+            <div class="inline-detail">
+              {% for a in r.actions %}<div>➜ {{ a.text }}{% if a.actor or a.due_date %} <em>({{ a.actor }}{{ ' — ' if a.actor and a.due_date }}{{ a.due_date }})</em>{% endif %}</div>{% endfor %}
+            </div>
+            {% endif %}
+          </td>
           <td class="num">{{ r.frequency }}</td>
           <td class="num">{{ r.severity }}</td>
           <td class="num">{{ '%g'|format(r.mastery)|replace('.', ',') }}</td>
           <td class="crit">{{ crit(r.frequency, r.severity, r.mastery) }}</td>
           <td class="actions-bar" style="white-space:nowrap">
-            <button class="icon-btn" type="button" title="Modifier cette situation dangereuse" onclick="openEditRisk({{ r.id }})">
+            <button class="icon-btn" type="button" title="Détail : modifier la situation, les mesures et les actions" onclick="openEditRisk({{ r.id }})">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-            </button>
-            <button class="icon-btn" type="button" title="Mesures de prévention" onclick="openMeasures({{ r.id }})">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>
-              <span class="badge">{{ r.measures|length }}</span>
-            </button>
-            <button class="icon-btn" type="button" title="Actions de prévention" onclick="openActions({{ r.id }})">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
-              <span class="badge">{{ r.actions|length }}</span>
             </button>
             <button class="icon-btn dup" type="button" title="Dupliquer vers d'autres unités de travail" onclick="openDupModal({{ r.id }}, {{ u.id }})">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
@@ -289,63 +293,47 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 const ICON_EDIT = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
 const ICON_DEL = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>';
 
-// --- Modifier une situation dangereuse ---
+// --- Fenêtre de détail : situation + mesures + actions ---
+function esc(s) { return (s||'').replace(/"/g, '&quot;'); }
 function openEditRisk(rid) {
   const r = RISKS[rid];
-  modalTitle.textContent = 'Modifier la situation dangereuse';
-  modalHint.textContent = '';
-  modalBody.innerHTML =
+  modalTitle.textContent = 'Détail de la situation dangereuse';
+  modalHint.textContent = r.hazard;
+  let html =
     '<form method="post" action="/risks/' + rid + '/update">' +
-    '<label class="modal-label">Risque<input name="hazard" id="modalHazard" value="' + r.hazard.replace(/"/g, '&quot;') + '" autocomplete="off" class="hazard-input" style="width:100%"></label>' +
-    '<label class="modal-label">Situation dangereuse<input name="situation" value="' + r.situation.replace(/"/g, '&quot;') + '" style="width:100%"></label>' +
+    '<label class="modal-label">Risque<input name="hazard" class="hazard-input" value="' + esc(r.hazard) + '" autocomplete="off" style="width:100%"></label>' +
     '<div class="modal-cols">' +
     '<label class="modal-label">Fréquence<select name="frequency">' + [1,2,3,4].map(v => '<option ' + (v===r.frequency?'selected':'') + '>' + v + '</option>').join('') + '</select></label>' +
     '<label class="modal-label">Gravité<select name="severity">' + [1,2,4,8].map(v => '<option ' + (v===r.severity?'selected':'') + '>' + v + '</option>').join('') + '</select></label>' +
     '<label class="modal-label">Maîtrise<select name="mastery">' + [0.5,1,2].map(v => '<option value="' + v + '" ' + (v===r.mastery?'selected':'') + '>' + v.toString().replace('.', ',') + '</option>').join('') + '</select></label>' +
-    '</div><div class="actions-row"><button type="button" class="btn ghost" onclick="closeModal()">Annuler</button>' +
-    '<button type="submit" class="btn">Enregistrer</button></div></form>';
-  modal.classList.add('open');
-}
-
-// --- Mesures de prévention ---
-function openMeasures(rid) {
-  const r = RISKS[rid];
-  modalTitle.textContent = 'Mesures de prévention';
-  modalHint.textContent = r.hazard + ' — ' + r.situation;
-  let html = '';
+    '</div>' +
+    '<label class="modal-label">Situation dangereuse<input name="situation" value="' + esc(r.situation) + '" style="width:100%"></label>' +
+    '<div class="actions-row"><button type="submit" class="btn">Enregistrer la situation</button></div></form>' +
+    '<hr class="modal-sep">' +
+    '<h4 class="modal-sec">Mesures de prévention</h4>';
   r.measures.forEach(m => {
     html += '<div class="modal-line"><form method="post" action="/measures/' + m.id + '/update" class="inline" style="gap:4px;flex:1">' +
-      '<input name="text" value="' + m.text.replace(/"/g, '&quot;') + '" style="flex:1">' +
+      '<input name="text" value="' + esc(m.text) + '" style="flex:1">' +
       '<button class="icon-btn" type="submit" title="Modifier">' + ICON_EDIT + '</button></form>' +
       '<form method="post" action="/measures/' + m.id + '/delete" style="display:inline">' +
       '<button class="icon-btn del" type="submit" title="Supprimer">' + ICON_DEL + '</button></form></div>';
   });
   if (!r.measures.length) html += '<p class="hint">Aucune mesure pour le moment.</p>';
-  html += '<form method="post" action="/risks/' + rid + '/measures/add" class="inline" style="gap:4px;margin-top:10px">' +
+  html += '<form method="post" action="/risks/' + rid + '/measures/add" class="inline" style="gap:4px;margin-top:6px">' +
     '<input name="text" placeholder="Nouvelle mesure de prévention..." style="flex:1" required>' +
     '<button class="btn small" type="submit" title="Ajouter">+</button></form>';
-  html += '<div class="actions-row"><button type="button" class="btn ghost" onclick="closeModal()">Fermer</button></div>';
-  modalBody.innerHTML = html;
-  modal.classList.add('open');
-}
-
-// --- Actions de prévention ---
-function openActions(rid) {
-  const r = RISKS[rid];
-  modalTitle.textContent = 'Actions de prévention';
-  modalHint.textContent = r.hazard + ' — ' + r.situation;
-  let html = '';
+  html += '<hr class="modal-sep"><h4 class="modal-sec">Actions de prévention</h4>';
   r.actions.forEach(a => {
     html += '<div class="modal-line"><form method="post" action="/actions/' + a.id + '/update" class="inline" style="gap:4px;flex:1">' +
-      '<input name="text" value="' + a.text.replace(/"/g, '&quot;') + '" style="flex:1" placeholder="Action">' +
-      '<input name="actor" value="' + a.actor.replace(/"/g, '&quot;') + '" placeholder="Acteur" style="width:100px">' +
-      '<input name="due_date" type="date" value="' + a.due_date + '" style="width:135px">' +
+      '<input name="text" value="' + esc(a.text) + '" style="flex:1" placeholder="Action">' +
+      '<input name="actor" value="' + esc(a.actor) + '" placeholder="Acteur" style="width:100px">' +
+      '<input name="due_date" type="date" value="' + esc(a.due_date) + '" style="width:135px">' +
       '<button class="icon-btn" type="submit" title="Modifier">' + ICON_EDIT + '</button></form>' +
       '<form method="post" action="/actions/' + a.id + '/delete" style="display:inline">' +
       '<button class="icon-btn del" type="submit" title="Supprimer">' + ICON_DEL + '</button></form></div>';
   });
   if (!r.actions.length) html += '<p class="hint">Aucune action pour le moment.</p>';
-  html += '<form method="post" action="/risks/' + rid + '/actions/add" class="inline" style="gap:4px;margin-top:10px">' +
+  html += '<form method="post" action="/risks/' + rid + '/actions/add" class="inline" style="gap:4px;margin-top:6px">' +
     '<input name="text" placeholder="Nouvelle action..." style="flex:1" required>' +
     '<input name="actor" placeholder="Acteur" style="width:100px">' +
     '<input name="due_date" type="date" style="width:135px">' +
@@ -415,6 +403,10 @@ document.addEventListener('keydown', function(e) { if (e.key === 'Escape') close
 .modal-cols .modal-label { flex: 1; }
 .modal-line { display: flex; align-items: center; gap: 4px; padding: 3px 0; border-bottom: 1px solid #F0EBE0; }
 .risk-count { font-size: 0.7rem; font-weight: 400; opacity: 0.8; margin-left: 8px; }
+.inline-detail { font-size: 0.72rem; color: #6b7280; margin-top: 3px; line-height: 1.35; }
+.inline-detail em { color: #9ca3af; font-style: normal; }
+.modal-sep { border: none; border-top: 1px solid #E5E0D5; margin: 14px 0 8px; }
+.modal-sec { margin: 0 0 6px; color: var(--blue); font-size: 0.9rem; }
 .badge { font-size: 0.62rem; background: var(--cream); border: 1px solid var(--grey); border-radius: 999px; padding: 0 5px; margin-left: 1px; }
 table.risks.compact td { padding: 7px 8px; }
 table.risks.compact .num { text-align: center; }
