@@ -90,6 +90,8 @@ def logout():
 def home():
     client = current_client()
     if not client:
+        if g.user["role"] == "admin":
+            return redirect(url_for("admin"))
         return render_template("no_client.html")
     conn = database.get_db()
     units = [dict(u) for u in conn.execute(

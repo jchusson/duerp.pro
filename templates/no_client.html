@@ -2,10 +2,20 @@
 {% block title %}Aucun client{% endblock %}
 {% block body %}
 <div class="login-page">
+  <img class="login-logo" src="{{ url_for('static', filename='logo-jhc.png') }}" alt="Logo JHC">
   <div class="login-box">
-    <h1>Aucun client associé</h1>
-    <p class="sub">Votre compte n'est rattaché à aucun client. Contactez l'administrateur.</p>
+    <h1>Aucun client rattaché</h1>
+    {% if g.user and g.user.role == 'admin' %}
+    <p class="sub">Vous êtes administrateur : créez d'abord un client dans l'espace d'administration, puis rattachez-y votre compte.</p>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:14px">
+      <a class="btn secondary" href="{{ url_for('admin') }}">Aller à l'administration</a>
+      <a class="btn ghost" href="{{ url_for('logout') }}">Se déconnecter</a>
+    </div>
+    {% else %}
+    <p class="sub">Votre compte n'est pas encore rattaché à un client. Contactez l'administrateur pour obtenir l'accès.</p>
     <a class="btn secondary" href="{{ url_for('logout') }}">Se déconnecter</a>
+    {% endif %}
   </div>
 </div>
+<p class="footer">JHC Consulting — duerp.pro</p>
 {% endblock %}
