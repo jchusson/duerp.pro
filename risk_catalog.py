@@ -47,8 +47,6 @@ RISQUE_CATALOG = [
     ("Travail en milieu hyperbare", "Activités exercées en milieu hyperbare définies à l'article R. 4461-1. Interventions ou travaux à au moins 1 200 hectopascals au moins 60 interventions ou travaux par an."),
     ("Travail isolé", "Risques liés à un travail isolé et dangereux, c'est-à-dire lorsque le travailleur est hors de vue ou de portée de voix d'autres personnes et sans possibilité de recours extérieur et que le travail présente un caractère dangereux."),
     ("Travail répétitif", "Travail répétitif caractérisé par la réalisation de travaux impliquant l'exécution de mouvements répétés, sollicitant tout ou partie du membre supérieur, à une fréquence élevée et sous cadence contrainte. Temps de cycle inférieur ou égal à 30 secondes : 15 actions techniques ou plus. Temps de cycle supérieur à 30 secondes, temps de cycle variable ou absence de temps de cycle : 30 actions techniques ou plus par minute. Durée exposition >= 900 heures / an."),
-    ("Travail sur Ecran", "Risques liés au travail sur écran."),
-    ("Travail sur ordinateur", "Risques liés à la posture de travail et à la fatigue oculaire lors du travail sur écran."),
+    ("Travail sur Ecran", "Risques liés au travail sur écran, à la posture et à la fatigue oculaire."),
     ("Vibrations", "Risques de maladies professionnelles liées à deux modes d'exposition : les vibrations transmises à l'ensemble du corps, notamment lors de la conduite de véhicules, et les vibrations transmises aux membres supérieurs, lors de l'utilisation de machines tenues ou portées à la main. Dans tous les cas, une exposition excessive peut conduire à une maladie professionnelle."),
-    ("Vibrations mécaniques", "Vibrations transmises aux mains et bras >= 2.5 m/s2. Vibrations transmises à l'ensemble du corps >= 0.5 m/s2. Durée exposition >= 450 heures / an."),
 ]

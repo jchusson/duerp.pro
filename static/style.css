@@ -138,6 +138,13 @@ table.admin th { color: var(--blue); background: var(--cream); }
 /* --- Sélecteur de risques prédéfinis --- */
 .datalist-wrap { position: relative; }
 input[list] { width: 100%; }
+/* --- Lignes mesures / actions --- */
+tr.subrow td { background: var(--cream); font-size: 0.78rem; }
+.line-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 2px 0; }
+.line-label { color: var(--blue); font-weight: 600; min-width: 150px; }
+.line-tools input { padding: 4px 7px; font-size: 0.8rem; }
+.line-tools .btn.small { padding: 3px 9px; }
+
 .cat-desc {
   font-size: 0.75rem; color: #6b7280; background: var(--cream);
   border-left: 3px solid var(--red); padding: 5px 9px; margin-top: 4px; border-radius: 0 6px 6px 0;

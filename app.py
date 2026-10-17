@@ -48,7 +48,6 @@ def admin_required(f):
 
 
 def current_client():
-    """Return the selected client (id in session) if the user may access it."""
     user = g.get("user")
     if not user:
         return None
@@ -85,6 +84,31 @@ def logout():
     return redirect(url_for("login"))
 
 
+def _load_units(client_id):
+    """Charge les UT avec risques, mesures et actions de prévention."""
+    conn = database.get_db()
+    units = [dict(u) for u in conn.execute(
+        "SELECT * FROM work_units WHERE client_id = ? ORDER BY position, id", (client_id,)
+    ).fetchall()]
+    for u in units:
+        u["risks"] = [dict(r) for r in conn.execute(
+            "SELECT * FROM risks WHERE work_unit_id = ? ORDER BY id", (u["id"],)
+        ).fetchall()]
+        for r in u["risks"]:
+            r["measures"] = [dict(m) for m in conn.execute(
+                "SELECT * FROM measures WHERE risk_id = ? ORDER BY id", (r["id"],)
+            ).fetchall()]
+            r["actions"] = [dict(m) for m in conn.execute(
+                "SELECT * FROM actions WHERE risk_id = ? ORDER BY id", (r["id"],)
+            ).fetchall()]
+    conn.close()
+    return units
+
+
+def crit_value(r):
+    return r["frequency"] * r["severity"] * r["mastery"]
+
+
 @app.route("/")
 @login_required
 def home():
@@ -95,62 +119,55 @@ def home():
         return render_template("no_client.html")
     q = request.args.get("q", "").strip().lower()
     crit_level = request.args.get("crit", "")
-    unit_id = request.args.get("unit", "")
+    unit_filter = request.args.get("unit", "")
+    units = _load_units(client["id"])
+    count_risks = sum(len(u["risks"]) for u in units)
     conn = database.get_db()
-    units = [dict(u) for u in conn.execute(
-        "SELECT * FROM work_units WHERE client_id = ? ORDER BY position, id", (client["id"],)
-    ).fetchall()]
-    count_risks = 0
-    for u in units:
-        u["risks"] = conn.execute(
-            "SELECT * FROM risks WHERE work_unit_id = ? ORDER BY id", (u["id"],)
-        ).fetchall()
-        count_risks += len(u["risks"])
-    actions = conn.execute(
+    actions_plan = conn.execute(
         "SELECT a.*, w.name AS work_unit FROM action_items a "
         "LEFT JOIN work_units w ON w.id = a.work_unit_id "
         "WHERE a.client_id = ? ORDER BY a.id DESC", (client["id"],)
     ).fetchall()
     conn.close()
 
-    # --- filtres : recherche plein texte + niveau de criticité + unité ---
-    def crit_value(r):
-        return r["frequency"] * r["severity"] * r["mastery"]
-
-    units_all = [dict(u, risks=list(u["risks"])) for u in units]
-    if q or crit_level or unit_id:
+    # --- filtres ---
+    units_shown = units
+    filters_active = bool(q or crit_level or unit_filter)
+    if filters_active:
         try:
-            unit_id_int = int(unit_id) if unit_id else None
+            unit_id_int = int(unit_filter) if unit_filter else None
         except ValueError:
             unit_id_int = None
-        for u in units_all:
+        for u in units_shown:
             if unit_id_int and u["id"] != unit_id_int:
                 u["risks"] = []
                 continue
             kept = []
             for r in u["risks"]:
                 if q:
-                    haystack = " ".join([u["name"], r["hazard"], r["situation"],
-                                         r["existing_measures"], r["actions"]]).lower()
-                    if q not in haystack:
+                    texts = [u["name"], r["hazard"], r["situation"],
+                             " ".join(m["text"] for m in r["measures"]),
+                             " ".join(a["text"] for a in r["actions"])]
+                    if q not in " ".join(texts).lower():
                         continue
-                if crit_level == "low" and crit_value(r) > 3:
+                v = crit_value(r)
+                if crit_level == "low" and v > 3:
                     continue
-                if crit_level == "mid" and not (4 <= crit_value(r) <= 15):
+                if crit_level == "mid" and not (4 <= v <= 15):
                     continue
-                if crit_level == "high" and crit_value(r) < 16:
+                if crit_level == "high" and v < 16:
                     continue
                 kept.append(r)
             u["risks"] = kept
-    total_shown = sum(len(u["risks"]) for u in units_all)
-    high = sum(1 for u in units for r in u["risks"] if crit_value(r) >= 16)
+        units_shown = [u for u in units_shown if u["risks"]]
 
+    high = sum(1 for u in units for r in u["risks"] if crit_value(r) >= 16)
     from risk_catalog import RISQUE_CATALOG
     return render_template(
-        "home.html", client=client, units=units, actions=actions,
+        "home.html", client=client, units=units, actions=actions_plan,
         count_risks=count_risks, count_high=high,
-        units_shown=units_all, total_shown=total_shown,
-        filters_active=bool(q or crit_level or unit_id),
+        units_shown=units_shown,
+        filters_active=filters_active,
         catalog=RISQUE_CATALOG,
         clients=database.user_clients(g.user),
     )
@@ -185,6 +202,70 @@ def add_work_unit():
     return redirect(url_for("home"))
 
 
+@app.route("/work-units/<int:uid>/rename", methods=["POST"])
+@login_required
+def rename_work_unit(uid):
+    client = current_client()
+    if not client:
+        abort(403)
+    name = request.form.get("name", "").strip()
+    if name:
+        conn = database.get_db()
+        conn.execute(
+            "UPDATE work_units SET name = ? WHERE id = ? AND client_id = ?",
+            (name, uid, client["id"]),
+        )
+        conn.commit()
+        conn.close()
+    return redirect(url_for("home"))
+
+
+@app.route("/work-units/duplicate", methods=["POST"])
+@login_required
+def duplicate_work_unit_selected():
+    """Formulaire « Dupliquer une UT » (sélecteur src)."""
+    try:
+        uid = int(request.form.get("src", ""))
+    except (TypeError, ValueError):
+        return redirect(url_for("home"))
+    return duplicate_work_unit(uid)
+
+
+@app.route("/work-units/<int:uid>/duplicate", methods=["POST"])
+@login_required
+def duplicate_work_unit(uid):
+    client = current_client()
+    if not client:
+        abort(403)
+    conn = database.get_db()
+    src = conn.execute(
+        "SELECT * FROM work_units WHERE id = ? AND client_id = ?", (uid, client["id"])
+    ).fetchone()
+    if not src:
+        conn.close()
+        abort(403)
+    cur = conn.execute(
+        "INSERT INTO work_units (client_id, name, position) VALUES (?,?,?)",
+        (client["id"], src["name"] + " (copie)", src["position"]),
+    )
+    new_uid = cur.lastrowid
+    risks = conn.execute("SELECT * FROM risks WHERE work_unit_id = ?", (uid,)).fetchall()
+    for r in risks:
+        cur = conn.execute(
+            "INSERT INTO risks (work_unit_id, hazard, situation, frequency, severity, mastery) "
+            "VALUES (?,?,?,?,?,?)",
+            (new_uid, r["hazard"], r["situation"], r["frequency"], r["severity"], r["mastery"]),
+        )
+        new_rid = cur.lastrowid
+        for m in conn.execute("SELECT * FROM measures WHERE risk_id = ?", (r["id"],)).fetchall():
+            conn.execute("INSERT INTO measures (risk_id, text) VALUES (?,?)", (new_rid, m["text"]))
+        for a in conn.execute("SELECT * FROM actions WHERE risk_id = ?", (r["id"],)).fetchall():
+            conn.execute("INSERT INTO actions (risk_id, text) VALUES (?,?)", (new_rid, a["text"]))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("home"))
+
+
 @app.route("/work-units/<int:uid>/delete", methods=["POST"])
 @login_required
 def delete_work_unit(uid):
@@ -202,6 +283,18 @@ def delete_work_unit(uid):
 
 # ---------------- Risques ----------------
 
+def _valid_risk_params():
+    try:
+        frequency = int(request.form.get("frequency"))
+        severity = int(request.form.get("severity"))
+        mastery = float(request.form.get("mastery"))
+    except (TypeError, ValueError):
+        abort(400)
+    if frequency not in FREQ or severity not in SEV or mastery not in MASTERY:
+        abort(400)
+    return frequency, severity, mastery
+
+
 @app.route("/risks/add", methods=["POST"])
 @login_required
 def add_risk():
@@ -210,13 +303,9 @@ def add_risk():
         abort(403)
     try:
         work_unit_id = int(request.form.get("work_unit_id"))
-        frequency = int(request.form.get("frequency"))
-        severity = int(request.form.get("severity"))
-        mastery = float(request.form.get("mastery"))
     except (TypeError, ValueError):
         abort(400)
-    if frequency not in FREQ or severity not in SEV or mastery not in MASTERY:
-        abort(400)
+    frequency, severity, mastery = _valid_risk_params()
     conn = database.get_db()
     check = conn.execute(
         "SELECT id FROM work_units WHERE id = ? AND client_id = ?", (work_unit_id, client["id"])
@@ -224,14 +313,19 @@ def add_risk():
     if not check:
         conn.close()
         abort(403)
-    conn.execute(
-        "INSERT INTO risks (work_unit_id, hazard, situation, frequency, severity, existing_measures, mastery, actions) "
-        "VALUES (?,?,?,?,?,?,?,?)",
+    cur = conn.execute(
+        "INSERT INTO risks (work_unit_id, hazard, situation, frequency, severity, mastery) "
+        "VALUES (?,?,?,?,?,?)",
         (work_unit_id, request.form.get("hazard", "").strip(),
-         request.form.get("situation", "").strip(), frequency, severity,
-         request.form.get("existing_measures", "").strip(), mastery,
-         request.form.get("actions", "").strip()),
+         request.form.get("situation", "").strip(), frequency, severity, mastery),
     )
+    new_rid = cur.lastrowid
+    for m in request.form.getlist("measures[]"):
+        if m.strip():
+            conn.execute("INSERT INTO measures (risk_id, text) VALUES (?,?)", (new_rid, m.strip()))
+    for a in request.form.getlist("actions[]"):
+        if a.strip():
+            conn.execute("INSERT INTO actions (risk_id, text) VALUES (?,?)", (new_rid, a.strip()))
     conn.commit()
     conn.close()
     return redirect(url_for("home"))
@@ -243,22 +337,30 @@ def update_risk(rid):
     client = current_client()
     if not client:
         abort(403)
-    try:
-        frequency = int(request.form.get("frequency"))
-        severity = int(request.form.get("severity"))
-        mastery = float(request.form.get("mastery"))
-    except (TypeError, ValueError):
-        abort(400)
-    if frequency not in FREQ or severity not in SEV or mastery not in MASTERY:
-        abort(400)
+    frequency, severity, mastery = _valid_risk_params()
     conn = database.get_db()
+    row = conn.execute(
+        "SELECT id FROM risks WHERE id=? AND work_unit_id IN "
+        "(SELECT id FROM work_units WHERE client_id=?)", (rid, client["id"])
+    ).fetchone()
+    if not row:
+        conn.close()
+        abort(403)
     conn.execute(
-        "UPDATE risks SET hazard=?, situation=?, frequency=?, severity=?, existing_measures=?, mastery=?, actions=? "
-        "WHERE id=? AND work_unit_id IN (SELECT id FROM work_units WHERE client_id=?)",
+        "UPDATE risks SET hazard=?, situation=?, frequency=?, severity=?, mastery=? WHERE id=?",
         (request.form.get("hazard", "").strip(), request.form.get("situation", "").strip(),
-         frequency, severity, request.form.get("existing_measures", "").strip(),
-         mastery, request.form.get("actions", "").strip(), rid, client["id"]),
+         frequency, severity, mastery, rid),
     )
+    if "measures[]" in request.form:
+        conn.execute("DELETE FROM measures WHERE risk_id=?", (rid,))
+        for m in request.form.getlist("measures[]"):
+            if m.strip():
+                conn.execute("INSERT INTO measures (risk_id, text) VALUES (?,?)", (rid, m.strip()))
+    if "actions[]" in request.form:
+        conn.execute("DELETE FROM actions WHERE risk_id=?", (rid,))
+        for a in request.form.getlist("actions[]"):
+            if a.strip():
+                conn.execute("INSERT INTO actions (risk_id, text) VALUES (?,?)", (rid, a.strip()))
     conn.commit()
     conn.close()
     return redirect(url_for("home"))
@@ -274,6 +376,97 @@ def delete_risk(rid):
     conn.execute(
         "DELETE FROM risks WHERE id=? AND work_unit_id IN (SELECT id FROM work_units WHERE client_id=?)",
         (rid, client["id"]),
+    )
+    conn.commit()
+    conn.close()
+    return redirect(url_for("home"))
+
+
+# ---------------- Mesures et actions de prévention (lignes individuelles) ----------------
+
+@app.route("/risks/<int:rid>/measures/add", methods=["POST"])
+@login_required
+def add_measure(rid):
+    return _add_line(rid, "measures")
+
+
+@app.route("/risks/<int:rid>/actions/add", methods=["POST"])
+@login_required
+def add_action_line(rid):
+    return _add_line(rid, "actions")
+
+
+def _add_line(rid, table):
+    client = current_client()
+    if not client:
+        abort(403)
+    text = request.form.get("text", "").strip()
+    if not text:
+        return redirect(url_for("home"))
+    conn = database.get_db()
+    row = conn.execute(
+        "SELECT id FROM risks WHERE id=? AND work_unit_id IN "
+        "(SELECT id FROM work_units WHERE client_id=?)", (rid, client["id"])
+    ).fetchone()
+    if row:
+        conn.execute("INSERT INTO %s (risk_id, text) VALUES (?,?)" % table, (rid, text))
+        conn.commit()
+    conn.close()
+    return redirect(url_for("home"))
+
+
+@app.route("/measures/<int:mid>/update", methods=["POST"])
+@login_required
+def update_measure(mid):
+    return _update_line(mid, "measures")
+
+
+@app.route("/actions/<int:aid>/update", methods=["POST"])
+@login_required
+def update_action_line(aid):
+    return _update_line(aid, "actions")
+
+
+def _update_line(line_id, table):
+    client = current_client()
+    if not client:
+        abort(403)
+    text = request.form.get("text", "").strip()
+    conn = database.get_db()
+    row = conn.execute(
+        "SELECT l.id FROM %s l JOIN risks r ON r.id = l.risk_id "
+        "JOIN work_units w ON w.id = r.work_unit_id WHERE l.id = ? AND w.client_id = ?" % table,
+        (line_id, client["id"]),
+    ).fetchone()
+    if row:
+        conn.execute("UPDATE %s SET text = ? WHERE id = ?" % table, (text, line_id))
+        conn.commit()
+    conn.close()
+    return redirect(url_for("home"))
+
+
+@app.route("/measures/<int:mid>/delete", methods=["POST"])
+@login_required
+def delete_measure(mid):
+    return _delete_line(mid, "measures")
+
+
+@app.route("/actions/<int:aid>/delete", methods=["POST"])
+@login_required
+def delete_action_line(aid):
+    return _delete_line(aid, "actions")
+
+
+def _delete_line(line_id, table):
+    client = current_client()
+    if not client:
+        abort(403)
+    conn = database.get_db()
+    conn.execute(
+        "DELETE FROM %s WHERE id = ? AND risk_id IN "
+        "(SELECT id FROM risks WHERE work_unit_id IN "
+        "(SELECT id FROM work_units WHERE client_id = ?))" % table,
+        (line_id, client["id"]),
     )
     conn.commit()
     conn.close()
@@ -341,14 +534,8 @@ def _load_export_data():
     client = current_client()
     if not client:
         abort(403)
+    units = _load_units(client["id"])
     conn = database.get_db()
-    units = [dict(u) for u in conn.execute(
-        "SELECT * FROM work_units WHERE client_id = ? ORDER BY position, id", (client["id"],)
-    ).fetchall()]
-    for u in units:
-        u["risks"] = [dict(r) for r in conn.execute(
-            "SELECT * FROM risks WHERE work_unit_id = ? ORDER BY id", (u["id"],)
-        ).fetchall()]
     actions = [dict(a) for a in conn.execute(
         "SELECT a.*, w.name AS work_unit FROM action_items a "
         "LEFT JOIN work_units w ON w.id = a.work_unit_id "

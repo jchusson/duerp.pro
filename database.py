@@ -54,9 +54,19 @@ CREATE TABLE IF NOT EXISTS risks (
     situation TEXT NOT NULL DEFAULT '',          -- situation dangereuse
     frequency INTEGER NOT NULL DEFAULT 1,        -- 1-4
     severity INTEGER NOT NULL DEFAULT 1,         -- 1, 2, 4, 8
-    existing_measures TEXT NOT NULL DEFAULT '',
-    mastery REAL NOT NULL DEFAULT 1,              -- 0.5, 1, 2
-    actions TEXT NOT NULL DEFAULT ''             -- actions retenues
+    mastery REAL NOT NULL DEFAULT 1               -- 0.5, 1, 2
+);
+
+CREATE TABLE IF NOT EXISTS measures (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    risk_id INTEGER NOT NULL REFERENCES risks(id) ON DELETE CASCADE,
+    text TEXT NOT NULL DEFAULT ''                -- mesure de prévention
+);
+
+CREATE TABLE IF NOT EXISTS actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    risk_id INTEGER NOT NULL REFERENCES risks(id) ON DELETE CASCADE,
+    text TEXT NOT NULL DEFAULT ''                -- action de prévention
 );
 
 CREATE TABLE IF NOT EXISTS action_items (

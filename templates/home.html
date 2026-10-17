@@ -54,7 +54,6 @@
     <div class="stat"><div class="num">{{ actions|length }}</div><div class="lbl">Actions du plan d'action</div></div>
   </div>
 
-  <!-- Aide à la cotation -->
   <button class="coting-help-toggle" onclick="var el=document.getElementById('cotingHelp');el.classList.toggle('open');this.textContent=el.classList.contains('open')?'Masquer l\'aide à la cotation':'Aide à la cotation'">Aide à la cotation</button>
   <div class="coting-help" id="cotingHelp">
     <h3>Grille de cotation des risques</h3>
@@ -94,7 +93,6 @@
     </div>
   </div>
 
-  <!-- Filtres -->
   <form class="filterbar" method="get" id="filterForm">
     <input type="text" name="q" value="{{ request.args.get('q','') }}"
            placeholder="Rechercher une unité de travail ou situation dangereuse..." id="searchInput">
@@ -111,7 +109,7 @@
       {% endfor %}
     </select>
     <button class="btn secondary small" type="submit">Filtres</button>
-    {% if filters_active %}<span class="active-badge">{{ total_shown }} risque(s) affiché(s)</span>
+    {% if filters_active %}<span class="active-badge">{{ units_shown|sum(attribute='risks')|length if false else (units_shown|map(attribute='risks')|map('length')|sum) }} risque(s) affiché(s)</span>
     <a href="{{ url_for('home') }}" class="linklike" style="font-size:0.8rem">Réinitialiser</a>{% endif %}
   </form>
 
@@ -123,23 +121,40 @@
       </label>
       <button class="btn secondary" type="submit">Créer une UT</button>
     </form>
+    <form class="inline" method="post" action="{{ url_for('duplicate_work_unit_selected') }}" id="dupForm" style="margin-top:10px">
+      <label>Dupliquer une unité de travail existante
+        <select name="src">
+          <option value="">— choisir une UT —</option>
+          {% for u in units %}<option value="{{ u.id }}">{{ u.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <button class="btn secondary" type="submit">Dupliquer une UT</button>
+    </form>
   </div>
 
-  {% set shown_units = units_shown if not filters_active else (units_shown | selectattr('risks') | list) %}
-  {% for u in shown_units %}
+  {% for u in units_shown %}
   <div class="unit-card">
     <div class="unit-title">
       <h3>{{ u.name }}</h3>
-      <form method="post" action="{{ url_for('delete_work_unit', uid=u.id) }}" onsubmit="return confirm('Supprimer cette unité de travail et ses risques ?')">
-        <button class="linklike" type="submit">Supprimer</button>
-      </form>
+      <div class="actions-bar">
+        <form class="inline" method="post" action="{{ url_for('rename_work_unit', uid=u.id) }}">
+          <input name="name" value="{{ u.name }}" style="max-width:280px">
+          <button class="btn small secondary" type="submit">Renommer</button>
+        </form>
+        <form method="post" action="{{ url_for('duplicate_work_unit', uid=u.id) }}">
+          <button class="btn small secondary" type="submit">Dupliquer</button>
+        </form>
+        <form method="post" action="{{ url_for('delete_work_unit', uid=u.id) }}" onsubmit="return confirm('Supprimer cette unité de travail et toutes ses situations dangereuses ?')">
+          <button class="linklike" type="submit">Supprimer</button>
+        </form>
+      </div>
     </div>
     <div class="unit-body">
       <table class="risks">
         <tr>
-          <th style="width:14%">Risque</th><th style="width:22%">Situation dangereuse</th>
-          <th>F</th><th>G</th><th style="width:22%">Mesures préventives existantes</th>
-          <th>M</th><th>FxGxM</th><th style="width:22%">Actions retenues</th><th></th>
+          <th style="width:13%">Risque</th><th style="width:19%">Situation dangereuse</th>
+          <th>F</th><th>G</th><th style="width:22%">Mesures de prévention</th>
+          <th>M</th><th>FxGxM</th><th style="width:22%">Actions de prévention</th><th></th>
         </tr>
         {% for r in u.risks %}
         <tr>
@@ -152,16 +167,58 @@
           <td class="num">
             <select name="severity">{% for v in [1,2,4,8] %}<option {{ 'selected' if v==r.severity }}>{{ v }}</option>{% endfor %}</select>
           </td>
-          <td><input name="existing_measures" value="{{ r.existing_measures }}" style="width:100%"></td>
+          <td>
+            {% for m in r.measures %}<div>&#8226; {{ m.text }}</div>{% endfor %}
+            {% if not r.measures %}<em style="color:#9ca3af">aucune</em>{% endif %}
+          </td>
           <td class="num">
             <select name="mastery">{% for v in [0.5,1,2] %}<option value="{{ v }}" {{ 'selected' if v==r.mastery }}>{{ '%g'|format(v)|replace('.', ',') }}</option>{% endfor %}</select>
           </td>
           <td class="crit">{{ crit(r.frequency, r.severity, r.mastery) }}</td>
-          <td><input name="actions" value="{{ r.actions }}" style="width:100%"></td>
+          <td>
+            {% for a in r.actions %}<div>&#8226; {{ a.text }}</div>{% endfor %}
+            {% if not r.actions %}<em style="color:#9ca3af">aucune</em>{% endif %}
+          </td>
           <td class="actions-bar">
             <button class="btn small secondary" type="submit">Enregistrer</button>
           </form>
             <form method="post" action="{{ url_for('delete_risk', rid=r.id) }}"><button class="linklike" type="submit">Suppr.</button></form>
+          </td>
+        </tr>
+        <tr class="subrow">
+          <td colspan="9">
+            <div class="line-tools">
+              <span class="line-label">Mesures de prévention :</span>
+              {% for m in r.measures %}
+              <form class="inline" method="post" action="{{ url_for('update_measure', mid=m.id) }}" style="gap:4px">
+                <input name="text" value="{{ m.text }}" style="min-width:220px">
+                <button class="btn small secondary" type="submit">Modifier</button>
+              </form>
+              <form method="post" action="{{ url_for('delete_measure', mid=m.id) }}">
+                <button class="linklike" type="submit">Supprimer</button>
+              </form>
+              {% endfor %}
+              <form class="inline" method="post" action="{{ url_for('add_measure', rid=r.id) }}" style="gap:4px">
+                <input name="text" placeholder="Nouvelle mesure..." style="min-width:180px">
+                <button class="btn small" type="submit" title="Ajouter une mesure de prévention">+</button>
+              </form>
+            </div>
+            <div class="line-tools" style="margin-top:4px">
+              <span class="line-label">Actions de prévention :</span>
+              {% for a in r.actions %}
+              <form class="inline" method="post" action="{{ url_for('update_action_line', aid=a.id) }}" style="gap:4px">
+                <input name="text" value="{{ a.text }}" style="min-width:220px">
+                <button class="btn small secondary" type="submit">Modifier</button>
+              </form>
+              <form method="post" action="{{ url_for('delete_action_line', aid=a.id) }}">
+                <button class="linklike" type="submit">Supprimer</button>
+              </form>
+              {% endfor %}
+              <form class="inline" method="post" action="{{ url_for('add_action_line', rid=r.id) }}" style="gap:4px">
+                <input name="text" placeholder="Nouvelle action..." style="min-width:180px">
+                <button class="btn small" type="submit" title="Ajouter une action de prévention">+</button>
+              </form>
+            </div>
           </td>
         </tr>
         {% endfor %}
@@ -172,10 +229,10 @@
             <td><input name="situation" placeholder="Situation dangereuse" style="width:100%"></td>
             <td class="num"><select name="frequency">{% for v in [1,2,3,4] %}<option>{{ v }}</option>{% endfor %}</select></td>
             <td class="num"><select name="severity">{% for v in [1,2,4,8] %}<option>{{ v }}</option>{% endfor %}</select></td>
-            <td><input name="existing_measures" placeholder="Mesures existantes" style="width:100%"></td>
+            <td><input name="measures[]" placeholder="Mesures de prévention" style="width:100%"></td>
             <td class="num"><select name="mastery">{% for v in [0.5,1,2] %}<option value="{{ v }}">{{ '%g'|format(v)|replace('.', ',') }}</option>{% endfor %}</select></td>
             <td></td>
-            <td><input name="actions" placeholder="Actions retenues" style="width:100%"></td>
+            <td><input name="actions[]" placeholder="Actions de prévention" style="width:100%"></td>
             <td><button class="btn small" type="submit">Ajouter</button></td>
           </form>
         </tr>

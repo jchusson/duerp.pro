@@ -44,6 +44,10 @@ MASTERIES = [
 ]
 
 
+def _esc(t):
+    return (t or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def risk_color(value):
     if value <= 3:
         return GREEN
@@ -203,21 +207,23 @@ def build_pdf(client, units, actions, buffer):
         story.append(Paragraph("Unité de travail : %s" % u["name"], styles["h1"]))
         story.append(Paragraph("Généré le %s" % today, styles["cell"]))
         header = [Paragraph(h, styles["cellw"]) for h in
-                  ["Risque", "Situation dangereuse", "F", "G", "Mesures préventives existantes", "M", "FxGxM", "Actions retenues"]]
+                  ["Risque", "Situation dangereuse", "F", "G", "Mesures de prévention", "M", "FxGxM", "Actions de prévention"]]
         rows = [header]
         cell_style = []
         for idx, r in enumerate(risks, start=1):
             crit = round(r["frequency"] * r["severity"] * r["mastery"], 1)
             cell_style.append(("BACKGROUND", (6, idx), (6, idx), risk_color(crit)))
+            measures_txt = "<br/>".join("&#8226; " + _esc(m["text"]) for m in r["measures"])
+            actions_txt = "<br/>".join("&#8226; " + _esc(a["text"]) for a in r["actions"])
             rows.append([
                 Paragraph(r["hazard"] or "", styles["cell"]),
                 Paragraph(r["situation"] or "", styles["cell"]),
                 Paragraph(str(r["frequency"]), styles["cell"]),
                 Paragraph(str(r["severity"]), styles["cell"]),
-                Paragraph(r["existing_measures"] or "", styles["cell"]),
+                Paragraph(measures_txt, styles["cell"]),
                 Paragraph(("%g" % r["mastery"]).replace(".", ","), styles["cell"]),
                 Paragraph(("%g" % crit).replace(".", ","), styles["cell"]),
-                Paragraph(r["actions"] or "", styles["cell"]),
+                Paragraph(actions_txt, styles["cell"]),
             ])
         tbl = Table(rows, colWidths=col_w, repeatRows=1)
         tbl.setStyle(TableStyle([
@@ -329,7 +335,7 @@ def build_excel(client, units, actions, buffer):
     ws["A2"] = "DOCUMENT UNIQUE DE TRANSCRIPTION DES RÉSULTATS DE L'ÉVALUATION DES RISQUES PROFESSIONNELS"
     ws["A3"] = "Mise à jour le %s" % date.today().strftime("%d/%m/%Y")
     headers = ["Unité de travail", "Risque", "Situation dangereuse", "F", "G",
-               "Mesures préventives existantes", "M", "FxGxM", "Actions retenues"]
+               "Mesures de prévention", "M", "FxGxM", "Actions de prévention"]
     ws.append([])
     ws.append(headers)
     hrow = ws.max_row
@@ -342,7 +348,8 @@ def build_excel(client, units, actions, buffer):
         for r in u["risks"]:
             crit = round(r["frequency"] * r["severity"] * r["mastery"], 1)
             ws.append([u["name"], r["hazard"], r["situation"], r["frequency"], r["severity"],
-                       r["existing_measures"], r["mastery"], crit, r["actions"]])
+                       "\n".join(m["text"] for m in r["measures"]), r["mastery"], crit,
+                       "\n".join(a["text"] for a in r["actions"])])
             row = ws.max_row
             color = "2ECC71" if crit <= 3 else ("F39C12" if crit < 16 else "E74C3C")
             ws.cell(row=row, column=8).fill = PatternFill("solid", fgColor=color)
