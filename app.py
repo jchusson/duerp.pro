@@ -1033,15 +1033,18 @@ def _kb_import_tabular(path):
 
 
 def _kb_import_pdf_text(path):
-    """Extrait le texte d'un PDF."""
+    """Extrait le texte d'un PDF. Retourne (texte, erreur)."""
     try:
         import pymupdf
+    except ImportError:
+        return "", "Le module pymupdf n'est pas installé. Lancez : pip install pymupdf"
+    try:
         doc = pymupdf.open(path)
         text = "\n".join(p.get_text() for p in doc)
         doc.close()
-        return text
-    except Exception:
-        return ""
+        return text, ""
+    except Exception as e:
+        return "", "PDF illisible ou corrompu : %s" % e
 
 
 @app.route("/kb/import", methods=["POST"])
@@ -1065,9 +1068,17 @@ def kb_import():
         entries = _kb_import_tabular(tmp)
         source = "fichier"
     else:
-        text = open(tmp, encoding="utf8", errors="ignore").read() if ext in (".txt", ".md") else _kb_import_pdf_text(tmp)
+        if ext in (".txt", ".md"):
+            text = open(tmp, encoding="utf8", errors="ignore").read()
+            err = ""
+        else:
+            text, err = _kb_import_pdf_text(tmp)
+        if err:
+            flash(err, "error")
+            os.remove(tmp)
+            return redirect(url_for("kb_list"))
         if not text.strip():
-            flash("Impossible de lire le contenu du fichier.", "error")
+            flash("Le PDF ne contient pas de texte extractible (probablement un scan/image). Un PDF textuel est nécessaire.", "error")
             os.remove(tmp)
             return redirect(url_for("kb_list"))
         if ai.is_configured():
